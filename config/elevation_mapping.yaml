@@ -1,0 +1,68 @@
+# Elevation mapping config only.
+# Keep this separate from camera merge config because algorithm tuning changes
+# independently from camera topology and simulation topic names.
+
+elevation_mapping_node:
+  ros__parameters:
+    input_cloud_topic: /pointcloud_merge_node/merged_points
+    output_image_topic: ~/elevation_image
+    output_cloud_topic: ~/elevation_points
+
+    # Robot-centric elevation grid in the merged point cloud frame.
+    grid:
+      resolution: 0.01
+      x_min: -0.30
+      x_max: 0.80
+      y_min: -0.55
+      y_max: 0.55
+      min_z: -0.60
+      max_z: 0.50
+
+    # Parameters reserved for the production backend that will wrap the current
+    # realsense_points_test elevation algorithm.
+    algorithm:
+      point_stride: 1
+      max_range: 2.5
+      print_frame_info: false
+      height_offset_base: 0.0
+
+      uncertainty:
+        noise_alpha: 0.001
+        min_meas_var: 0.0004
+        init_cell_var: 0.01
+        min_cell_var: 0.0004
+        max_cell_var: 0.25
+        time_var_rate: 0.2
+        mahalanobis_thresh: 3.0
+        dyn_env_var_bump: 0.0225
+        dyn_reset_delta: 0.1
+
+      frame_aggregation:
+        robust_height_gate: 0.04
+        intra_cell_min_support_gap: 0.025
+        intra_cell_min_support_count: 3
+        edge_mix_height_diff: 0.035
+        edge_prefer_prev_support_count: 2
+
+      isolated_filter:
+        radius: 1
+        min_support_neighbors: 2
+        support_height_diff: 0.025
+        outlier_height_diff: 0.05
+        every_n_frames: 2
+
+      hole_fill:
+        radius: 1
+        min_neighbors: 3
+        max_height_diff: 0.03
+
+      bilateral:
+        radius: 1
+        sigma_spatial: 1.1
+        sigma_height: 0.025
+        max_height_diff: 0.04
+        passes: 2
+        every_n_frames: 2
+
+      runtime:
+        min_runtime_fps: 60
