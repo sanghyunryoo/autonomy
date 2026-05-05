@@ -46,14 +46,16 @@ source install/setup.bash
 ## Run
 
 For simulation, publish depth images and camera info on the topics configured in
-`config/multi_realsense_elevation.yaml`. This skips the hardware serial mapper
-and enables `use_sim_time` on the merge and elevation nodes:
+`config/realsense_serial_mapping.yaml`. This skips the hardware serial mapper
+and enables `use_sim_time` on the merge and elevation nodes. Only camera bindings
+with `enabled: true` are subscribed and merged:
 
 ```bash
 ros2 launch height_map_ros2 multi_realsense_elevation.launch.py simulation:=true
 ```
 
-For hardware, keep serial numbers in `config/realsense_serial_mapping.yaml`.
+For hardware, keep serial numbers and camera merge settings in
+`config/realsense_serial_mapping.yaml`.
 First identify physical cameras:
 
 ```bash
@@ -75,6 +77,7 @@ ros2 launch height_map_ros2 multi_realsense_elevation.launch.py simulation:=fals
 ```
 
 The elevation config stays hardware-independent. Edit
-`config/multi_realsense_elevation.yaml` only for camera topic names and TF frame
-topology. Edit `config/elevation_mapping.yaml` for merged-cloud input/output,
-grid bounds, and elevation algorithm tuning.
+`config/realsense_serial_mapping.yaml` for camera identity, enabled flags, topic
+names, TF frame topology, and merge filter settings. Edit
+`config/elevation_mapping.yaml` for merged-cloud input/output, grid bounds, and
+elevation algorithm tuning.

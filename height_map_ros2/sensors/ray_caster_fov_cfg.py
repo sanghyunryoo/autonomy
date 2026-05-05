@@ -50,6 +50,15 @@ PER_CAMERA_MARKER_CFGS = {
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.4, 1.0)),
             ),
         },
+    ),
+    "rear": VisualizationMarkersCfg(
+        prim_path="/Visuals/RayCasterFOV/rear",
+        markers={
+            "hit": sim_utils.SphereCfg(
+                radius=0.028,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.7, 0.0)),
+            ),
+        },
     )
 }
 
@@ -65,6 +74,17 @@ CAMERA_FOV_DATA = (
         "min_depth": 0.1000000000,
         "max_depth": 2.5000000000,
         "T_base_optical": ((-0.0033087169, -0.7070990400, 0.7071067812, 0.2118583431), (-0.9999890523, 0.0046792323, -0.0000000000, 0.0006329723), (-0.0033087169, -0.7070990400, -0.7071067812, -0.0842872753), (0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000)),
+    },
+    {
+        "role": "rear",
+        "model": "D435",
+        "mount_frame": "R_camera_link",
+        "optical_frame": "R_camera_link",
+        "h_fov_deg": 87.0000000000,
+        "v_fov_deg": 58.0000000000,
+        "min_depth": 0.1000000000,
+        "max_depth": 2.5000000000,
+        "T_base_optical": ((-0.0000000000, 0.7071067812, -0.7071067812, -0.2118583431), (1.0000000000, 0.0000000000, -0.0000000000, -0.0006329723), (0.0000000000, -0.7071067812, -0.7071067812, -0.0842872753), (0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000)),
     },
 )
 

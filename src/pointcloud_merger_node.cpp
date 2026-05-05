@@ -36,6 +36,8 @@ void PointCloudMergerNode::loadParameters()
 {
   target_frame_ = declare_parameter<std::string>("target_frame", target_frame_);
   urdf_path_ = declare_parameter<std::string>("urdf_path", urdf_path_);
+  static_tf_frame_prefix_ =
+    declare_parameter<std::string>("static_tf_frame_prefix", static_tf_frame_prefix_);
   publish_static_tf_ = declare_parameter<bool>("publish_static_tf", publish_static_tf_);
   publish_rate_hz_ = declare_parameter<double>("publish_rate_hz", publish_rate_hz_);
   max_cloud_age_sec_ = declare_parameter<double>("max_cloud_age_sec", max_cloud_age_sec_);
@@ -94,6 +96,14 @@ std::string readFile(const std::string & path)
   std::ostringstream stream;
   stream << file.rdbuf();
   return stream.str();
+}
+
+std::string addFramePrefix(const std::string & prefix, const std::string & frame)
+{
+  if (prefix.empty() || frame.empty() || frame.find('/') != std::string::npos) {
+    return frame;
+  }
+  return prefix + frame;
 }
 
 std::vector<double> parseDoubles(const std::string & text, std::size_t expected_count)
@@ -171,15 +181,32 @@ void PointCloudMergerNode::publishStaticTransformsFromUrdf()
     transform.transform.rotation = tf2::toMsg(quaternion);
 
     transforms.push_back(transform);
+
+    if (!static_tf_frame_prefix_.empty()) {
+      auto prefixed_transform = transform;
+      prefixed_transform.header.frame_id =
+        addFramePrefix(static_tf_frame_prefix_, transform.header.frame_id);
+      prefixed_transform.child_frame_id =
+        addFramePrefix(static_tf_frame_prefix_, transform.child_frame_id);
+
+      if (prefixed_transform.header.frame_id != transform.header.frame_id ||
+        prefixed_transform.child_frame_id != transform.child_frame_id)
+      {
+        transforms.push_back(prefixed_transform);
+      }
+    }
   }
 
   if (!transforms.empty()) {
+    const std::string prefix_log = static_tf_frame_prefix_.empty() ?
+      "" : " with frame prefix '" + static_tf_frame_prefix_ + "'";
     static_tf_broadcaster_.sendTransform(transforms);
     RCLCPP_INFO(
       get_logger(),
-      "Published %zu static transforms from %s",
+      "Published %zu static transforms from %s%s",
       transforms.size(),
-      urdf_path_.c_str());
+      urdf_path_.c_str(),
+      prefix_log.c_str());
   }
 }
 
@@ -273,6 +300,13 @@ PointCloudMergerNode::PointCloudMsg PointCloudMergerNode::mergeLatestClouds(
     const auto info_it = latest_camera_infos_.find(camera.name);
 
     if (depth_it == latest_depths_.end() || !depth_it->second) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Waiting for depth image camera='%s' topic='%s'",
+        camera.name.c_str(),
+        camera.depth_topic.c_str());
       continue;
     }
 
@@ -464,6 +498,21 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
   }
 
   modifier.resize(old_point_count + written);
+
+  if (written == 0) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      2000,
+      "Depth image produced no valid points camera='%s' frame='%s' encoding='%s' "
+      "range=[%.3f, %.3f] stride=%d",
+      camera.name.c_str(),
+      depth.header.frame_id.c_str(),
+      depth.encoding.c_str(),
+      min_range_,
+      max_range_,
+      pixel_stride_);
+  }
 
   output.header.stamp = now;
   output.header.frame_id = target_frame_;

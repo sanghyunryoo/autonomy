@@ -8,6 +8,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include "height_map_ros2/elevation_map_backend.hpp"
+#include "height_map_ros2/msg/masked_height_scan.hpp"
 
 namespace height_map_ros2
 {
@@ -21,16 +22,22 @@ private:
   void loadParameters();
   void createIo();
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  [[nodiscard]] height_map_ros2::msg::MaskedHeightScan gridToMaskedHeightScan(
+    const ElevationGrid & grid) const;
   [[nodiscard]] sensor_msgs::msg::PointCloud2 gridToPointCloud(const ElevationGrid & grid) const;
 
   std::string input_cloud_topic_{"pointcloud_merge_node/merged_points"};
   std::string output_image_topic_{"~/elevation_image"};
   std::string output_cloud_topic_{"~/elevation_points"};
+  std::string output_masked_height_scan_topic_{"~/masked_height_scan"};
   GridSpec grid_spec_;
+  double height_scan_offset_{0.5};
+  double base_height_{0.5};
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr elevation_image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr elevation_cloud_pub_;
+  rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr masked_height_scan_pub_;
   std::unique_ptr<ElevationMapBackend> elevation_backend_;
 };
 

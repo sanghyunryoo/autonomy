@@ -55,6 +55,7 @@ private:
 
   std::string target_frame_{"base_link"};
   std::string urdf_path_;
+  std::string static_tf_frame_prefix_;
   bool publish_static_tf_{true};
   double publish_rate_hz_{20.0};
   double max_cloud_age_sec_{0.20};

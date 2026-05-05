@@ -25,6 +25,22 @@ DEFAULT_STREAM = {
 }
 
 
+DEFAULT_MERGE_PARAMETERS = {
+    "target_frame": "4w4l/base_link",
+    "publish_static_tf": True,
+    "publish_rate_hz": 20.0,
+    "max_cloud_age_sec": 0.0,
+    "depth_filter": {
+        "min_range": 0.05,
+        "max_range": 2.5,
+        "pixel_stride": 2,
+    },
+}
+
+
+DEFAULT_TOPIC_PREFIX = "/robot_4w4l"
+
+
 @dataclass(frozen=True)
 class CameraLink:
     link_name: str
@@ -157,7 +173,7 @@ def quote(value: str) -> str:
 
 def render_mapping(camera_links: list[CameraLink]) -> str:
     lines = [
-        "# Hardware-only camera identity map.",
+        "# Camera identity, topic, and point cloud merge map.",
         "# Auto-generated from URDF camera links.",
         "# Fill serial_no and model before running the hardware serial mapper.",
         "",
@@ -176,8 +192,8 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
                     '    serial_no: ""',
                     '    model: ""',
                     f"    camera_name: {camera.camera_name}",
-                    f"    depth_topic: /{topic_base}/depth/image_rect",
-                    f"    camera_info_topic: /{topic_base}/depth/camera_info",
+                    f"    depth_topic: {DEFAULT_TOPIC_PREFIX}/{topic_base}/depth/image_rect_raw",
+                    f"    camera_info_topic: {DEFAULT_TOPIC_PREFIX}/{topic_base}/depth/camera_info",
                     f"    publish_frame: {camera.link_name}",
                     f"    mount_frame: {camera.link_name}",
                     f"    optical_frame: {camera.optical_frame}",
@@ -203,6 +219,23 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
             f"depth_height: {profile['depth_height']}, "
             f"depth_fps: {profile['depth_fps']}}}"
         )
+
+    lines.extend(
+        [
+            "",
+            "pointcloud_merge_node:",
+            "  ros__parameters:",
+            f"    target_frame: {DEFAULT_MERGE_PARAMETERS['target_frame']}",
+            f"    publish_static_tf: {str(DEFAULT_MERGE_PARAMETERS['publish_static_tf']).lower()}",
+            f"    publish_rate_hz: {DEFAULT_MERGE_PARAMETERS['publish_rate_hz']}",
+            f"    max_cloud_age_sec: {DEFAULT_MERGE_PARAMETERS['max_cloud_age_sec']}",
+            "",
+            "    depth_filter:",
+            f"      min_range: {DEFAULT_MERGE_PARAMETERS['depth_filter']['min_range']}",
+            f"      max_range: {DEFAULT_MERGE_PARAMETERS['depth_filter']['max_range']}",
+            f"      pixel_stride: {DEFAULT_MERGE_PARAMETERS['depth_filter']['pixel_stride']}",
+        ]
+    )
 
     return "\n".join(lines) + "\n"
 

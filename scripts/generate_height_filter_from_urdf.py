@@ -78,6 +78,19 @@ class ResolvedCamera:
     spec: CameraSpec
 
 
+@dataclass
+class ElevationGridExample:
+    resolution: float
+    x_min: float
+    x_max: float
+    y_min: float
+    y_max: float
+    width: int
+    height: int
+    isaac_size_x: float
+    isaac_size_y: float
+
+
 # Approximate RealSense depth FOV values.
 # 실기에서는 CameraInfo의 K로 FOV를 계산하는 것이 가장 정확하지만,
 # 이 generator는 offline URDF+YAML 기반이므로 모델별 기본값을 사용한다.
@@ -344,6 +357,52 @@ def load_mapping(mapping_file: Path) -> Tuple[List[CameraBinding], dict]:
         )
 
     return bindings, stream
+
+
+def load_elevation_grid_example(elevation_config: Path) -> ElevationGridExample:
+    if not elevation_config.exists():
+        raise FileNotFoundError(f"Elevation config YAML does not exist: {elevation_config}")
+
+    with elevation_config.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+
+    grid = (
+        data.get("elevation_mapping_node", {})
+        .get("ros__parameters", {})
+        .get("grid", {})
+    )
+
+    required = ["resolution", "x_min", "x_max", "y_min", "y_max"]
+    for key in required:
+        if key not in grid:
+            raise ValueError(f"Missing elevation grid key '{key}' in: {elevation_config}")
+
+    resolution = float(grid["resolution"])
+    x_min = float(grid["x_min"])
+    x_max = float(grid["x_max"])
+    y_min = float(grid["y_min"])
+    y_max = float(grid["y_max"])
+
+    if resolution <= 0.0 or x_max <= x_min or y_max <= y_min:
+        raise ValueError(f"Invalid elevation grid geometry in: {elevation_config}")
+
+    # ROS ElevationGrid uses ceil((max - min) / resolution) cells.
+    # IsaacLab GridPatternCfg produces round(size / resolution) + 1 rays.
+    # Matching counts therefore requires size = (ros_cell_count - 1) * resolution.
+    width = int(math.ceil((x_max - x_min) / resolution))
+    height = int(math.ceil((y_max - y_min) / resolution))
+
+    return ElevationGridExample(
+        resolution=resolution,
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
+        width=width,
+        height=height,
+        isaac_size_x=(width - 1) * resolution,
+        isaac_size_y=(height - 1) * resolution,
+    )
 
 
 def resolve_camera_spec(model: str, stream: dict) -> CameraSpec:
@@ -954,6 +1013,11 @@ def parse_args():
         help="Robot URDF path.",
     )
     parser.add_argument(
+        "--elevation-config",
+        default="src/height_map_ros2/config/elevation_mapping.yaml",
+        help="Elevation mapping YAML path used to print a matching IsaacLab GridPatternCfg example.",
+    )
+    parser.add_argument(
         "--base-link",
         default="base_link",
         help="Base link name in URDF.",
@@ -985,9 +1049,11 @@ def main():
 
     mapping_file = Path(args.mapping_file).expanduser().resolve()
     urdf_path = Path(args.urdf).expanduser().resolve()
+    elevation_config = Path(args.elevation_config).expanduser().resolve()
     base_link = normalize_frame_name(args.base_link)
 
     bindings, stream = load_mapping(mapping_file)
+    elevation_grid = load_elevation_grid_example(elevation_config)
     link_names, child_to_parent, _ = load_urdf_tree(urdf_path)
 
     if base_link not in link_names:
@@ -1053,11 +1119,24 @@ def main():
     print("Use in IsaacLab config:")
     print(f"  from <your_package>.sensors.{module_name}_cfg import RayCasterFOVCfg")
     print("")
+    print("  # Matched to elevation_mapping.yaml grid:")
+    print(
+        f"  #   ROS cells: width={elevation_grid.width}, height={elevation_grid.height}, "
+        f"resolution={elevation_grid.resolution:g}"
+    )
+    print("  #   ROS ElevationGrid uses ceil((max - min) / resolution).")
+    print("  #   IsaacLab GridPatternCfg uses round(size / resolution) + 1 rays.")
+    print("")
     print("  height_scanner = RayCasterFOVCfg(")
     print('      prim_path="{ENV_REGEX_NS}/Robot/base_link",')
     print("      offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
     print('      ray_alignment="yaw",')
-    print("      pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),")
+    print(
+        "      pattern_cfg=patterns.GridPatternCfg("
+        f"resolution={elevation_grid.resolution:g}, "
+        f"size=[{elevation_grid.isaac_size_x:g}, {elevation_grid.isaac_size_y:g}]"
+        "),"
+    )
     print("      debug_vis=True,")
     print('      mesh_prim_paths=["/World/ground"],')
     print("      debug_show_invalid=False,")

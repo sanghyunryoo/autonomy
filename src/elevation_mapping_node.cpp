@@ -23,6 +23,8 @@ void ElevationMappingNode::loadParameters()
   input_cloud_topic_ = declare_parameter<std::string>("input_cloud_topic", input_cloud_topic_);
   output_image_topic_ = declare_parameter<std::string>("output_image_topic", output_image_topic_);
   output_cloud_topic_ = declare_parameter<std::string>("output_cloud_topic", output_cloud_topic_);
+  output_masked_height_scan_topic_ = declare_parameter<std::string>(
+    "output_masked_height_scan_topic", output_masked_height_scan_topic_);
 
   grid_spec_.resolution = declare_parameter<double>("grid.resolution", grid_spec_.resolution);
   grid_spec_.x_min = declare_parameter<double>("grid.x_min", grid_spec_.x_min);
@@ -37,7 +39,8 @@ void ElevationMappingNode::loadParameters()
   declare_parameter<int>("algorithm.point_stride", 1);
   declare_parameter<double>("algorithm.max_range", 2.5);
   declare_parameter<bool>("algorithm.print_frame_info", false);
-  declare_parameter<double>("algorithm.height_offset_base", 0.0);
+  height_scan_offset_ = declare_parameter<double>("algorithm.height_scan_offset", height_scan_offset_);
+  base_height_ = declare_parameter<double>("algorithm.base_height", base_height_);
 
   declare_parameter<double>("algorithm.uncertainty.noise_alpha", 0.001);
   declare_parameter<double>("algorithm.uncertainty.min_meas_var", 0.0004);
@@ -87,10 +90,16 @@ void ElevationMappingNode::createIo()
   elevation_image_pub_ = create_publisher<sensor_msgs::msg::Image>(output_image_topic_, 10);
   elevation_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
     output_cloud_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
+  masked_height_scan_pub_ = create_publisher<height_map_ros2::msg::MaskedHeightScan>(
+    output_masked_height_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
 
   RCLCPP_INFO(get_logger(), "Subscribing merged cloud: %s", input_cloud_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Publishing elevation image: %s", output_image_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Publishing elevation points: %s", output_cloud_topic_.c_str());
+  RCLCPP_INFO(
+    get_logger(),
+    "Publishing masked height scan: %s",
+    output_masked_height_scan_topic_.c_str());
 }
 
 void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -98,6 +107,40 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   auto grid = elevation_backend_->build(*msg, msg->header);
   elevation_image_pub_->publish(grid.toImageMsg());
   elevation_cloud_pub_->publish(gridToPointCloud(grid));
+  masked_height_scan_pub_->publish(gridToMaskedHeightScan(grid));
+}
+
+height_map_ros2::msg::MaskedHeightScan ElevationMappingNode::gridToMaskedHeightScan(
+  const ElevationGrid & grid) const
+{
+  height_map_ros2::msg::MaskedHeightScan msg;
+  msg.header = grid.header;
+  msg.width = grid.spec.width();
+  msg.height = grid.spec.height();
+  msg.resolution = static_cast<float>(grid.spec.resolution);
+  msg.x_min = static_cast<float>(grid.spec.x_min);
+  msg.x_max = static_cast<float>(grid.spec.x_max);
+  msg.y_min = static_cast<float>(grid.spec.y_min);
+  msg.y_max = static_cast<float>(grid.spec.y_max);
+  msg.height_scan_offset = static_cast<float>(height_scan_offset_);
+  msg.base_height = static_cast<float>(base_height_);
+  msg.fill_value = static_cast<float>(base_height_ - height_scan_offset_);
+
+  const auto count = static_cast<std::size_t>(msg.width) * msg.height;
+  msg.data.resize(count, msg.fill_value);
+  msg.valid_mask.resize(count, 0);
+
+  for (std::size_t index = 0; index < count; ++index) {
+    const auto z = grid.height[index];
+    if (std::isfinite(z)) {
+      // In target_frame == base_link, Isaac height_scan equals
+      // sensor_height - hit_point_z - offset == -point_z_in_base - offset.
+      msg.data[index] = static_cast<float>(-static_cast<double>(z) - height_scan_offset_);
+      msg.valid_mask[index] = 1;
+    }
+  }
+
+  return msg;
 }
 
 sensor_msgs::msg::PointCloud2 ElevationMappingNode::gridToPointCloud(const ElevationGrid & grid) const
