@@ -32,6 +32,11 @@ elevation_mapping_node:
       height_scan_offset: 0.5
       base_height: 0.5
 
+      # Debug-only outputs. The sim-to-real masked_height_scan is computed from
+      # the raw grid, while elevation_image/elevation_points are filled for RViz.
+      fill_debug_outputs: true
+      debug_fill_z: -0.47957
+
       uncertainty:
         noise_alpha: 0.001
         min_meas_var: 0.0004

@@ -41,6 +41,8 @@ void ElevationMappingNode::loadParameters()
   declare_parameter<bool>("algorithm.print_frame_info", false);
   height_scan_offset_ = declare_parameter<double>("algorithm.height_scan_offset", height_scan_offset_);
   base_height_ = declare_parameter<double>("algorithm.base_height", base_height_);
+  fill_debug_outputs_ = declare_parameter<bool>("algorithm.fill_debug_outputs", fill_debug_outputs_);
+  debug_fill_z_ = declare_parameter<double>("algorithm.debug_fill_z", debug_fill_z_);
 
   declare_parameter<double>("algorithm.uncertainty.noise_alpha", 0.001);
   declare_parameter<double>("algorithm.uncertainty.min_meas_var", 0.0004);
@@ -105,9 +107,26 @@ void ElevationMappingNode::createIo()
 void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
   auto grid = elevation_backend_->build(*msg, msg->header);
-  elevation_image_pub_->publish(grid.toImageMsg());
-  elevation_cloud_pub_->publish(gridToPointCloud(grid));
   masked_height_scan_pub_->publish(gridToMaskedHeightScan(grid));
+
+  auto debug_grid = grid;
+  fillDebugGrid(debug_grid);
+  elevation_image_pub_->publish(debug_grid.toImageMsg());
+  elevation_cloud_pub_->publish(gridToPointCloud(debug_grid));
+}
+
+void ElevationMappingNode::fillDebugGrid(ElevationGrid & grid) const
+{
+  if (!fill_debug_outputs_ || !std::isfinite(debug_fill_z_)) {
+    return;
+  }
+
+  const auto fill_value = static_cast<float>(debug_fill_z_);
+  for (auto & height : grid.height) {
+    if (!std::isfinite(height)) {
+      height = fill_value;
+    }
+  }
 }
 
 height_map_ros2::msg::MaskedHeightScan ElevationMappingNode::gridToMaskedHeightScan(

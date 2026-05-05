@@ -22,6 +22,7 @@ private:
   void loadParameters();
   void createIo();
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  void fillDebugGrid(ElevationGrid & grid) const;
   [[nodiscard]] height_map_ros2::msg::MaskedHeightScan gridToMaskedHeightScan(
     const ElevationGrid & grid) const;
   [[nodiscard]] sensor_msgs::msg::PointCloud2 gridToPointCloud(const ElevationGrid & grid) const;
@@ -33,6 +34,8 @@ private:
   GridSpec grid_spec_;
   double height_scan_offset_{0.5};
   double base_height_{0.5};
+  bool fill_debug_outputs_{true};
+  double debug_fill_z_{0.0};
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr elevation_image_pub_;
