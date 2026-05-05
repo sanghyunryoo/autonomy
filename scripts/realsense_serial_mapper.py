@@ -40,7 +40,10 @@ class RealSenseSerialMapper(Node):
         self._np, self._rs, self._yaml = import_runtime_modules()
         self._mapping_file = self.get_parameter("mapping_file").value
         self._config = self._load_config(self._mapping_file)
-        self._bindings = self._config["camera_bindings"]
+        self._bindings = [
+            binding for binding in self._config["camera_bindings"]
+            if bool(binding.get("enabled", True))
+        ]
         self._stream = self._config["stream"]
 
         self._binding_pub = self.create_publisher(String, "~/camera_bindings", 10)
@@ -75,6 +78,7 @@ class RealSenseSerialMapper(Node):
             for key in ("role", "serial_no", "camera_name", "depth_topic", "camera_info_topic"):
                 if key not in binding:
                     raise ValueError(f"Missing required key '{key}' in binding: {binding}")
+            binding.setdefault("enabled", True)
 
         stream = data.get("stream", {})
         stream.setdefault("depth_width", 640)

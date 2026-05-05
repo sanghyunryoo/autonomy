@@ -19,6 +19,7 @@ namespace height_map_ros2
 struct CameraSource
 {
   std::string name;
+  bool enabled{true};
   std::string depth_topic;
   std::string camera_info_topic;
   std::string mount_frame;

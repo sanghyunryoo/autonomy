@@ -53,6 +53,7 @@ void PointCloudMergerNode::loadParameters()
   for (const auto & name : camera_names) {
     CameraSource camera;
     camera.name = name;
+    camera.enabled = declare_parameter<bool>("cameras." + name + ".enabled", true);
     camera.depth_topic = declare_parameter<std::string>(
       "cameras." + name + ".depth_topic", "/" + name + "/depth/image_rect");
     camera.camera_info_topic = declare_parameter<std::string>(
@@ -62,11 +63,16 @@ void PointCloudMergerNode::loadParameters()
     camera.optical_frame = declare_parameter<std::string>(
       "cameras." + name + ".optical_frame", "");
 
+    if (!camera.enabled) {
+      RCLCPP_INFO(get_logger(), "Camera '%s' is disabled; skipping subscriptions and merge", name.c_str());
+      continue;
+    }
+
     cameras_.push_back(std::move(camera));
   }
 
   if (cameras_.empty()) {
-    throw std::runtime_error("Parameter camera_names must contain at least one camera");
+    throw std::runtime_error("No enabled cameras. Check camera_names and cameras.<name>.enabled parameters");
   }
 }
 

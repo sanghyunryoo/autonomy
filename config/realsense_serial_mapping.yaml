@@ -1,10 +1,12 @@
 # Hardware-only camera identity map.
-# This file is intentionally separate from multi_realsense_elevation.yaml so the
-# elevation node can be reused in simulation with topic names only.
+# Auto-generated from URDF camera links.
+# Fill serial_no and model before running the hardware serial mapper.
 
 camera_bindings:
   - role: front
-    serial_no: "909512072144"
+    enabled: true
+    serial_no: ""
+    model: d435
     camera_name: front_camera
     depth_topic: /front_camera/depth/image_rect
     camera_info_topic: /front_camera/depth/camera_info
@@ -13,7 +15,9 @@ camera_bindings:
     optical_frame: F_camera_link
 
   - role: rear
-    serial_no: "243522073112"
+    enabled: false
+    serial_no: ""
+    model: d435
     camera_name: rear_camera
     depth_topic: /rear_camera/depth/image_rect
     camera_info_topic: /rear_camera/depth/camera_info

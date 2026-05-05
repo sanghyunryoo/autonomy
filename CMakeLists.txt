@@ -66,6 +66,7 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/urdf
 )
 
 install(PROGRAMS
+  scripts/generate_realsense_mapping_from_urdf.py
   scripts/realsense_serial_mapper.py
   scripts/show_realsense_serials.py
   DESTINATION lib/${PROJECT_NAME}

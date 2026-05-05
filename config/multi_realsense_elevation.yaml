@@ -14,11 +14,13 @@ pointcloud_merge_node:
 
     cameras:
       front:
+        enabled: true
         depth_topic: /robot_4w4l/front_camera/depth/image_rect_raw
         camera_info_topic: /robot_4w4l/front_camera/depth/camera_info
         mount_frame: 4w4l/F_camera_link
         optical_frame: 4w4l/F_camera_link
       rear:
+        enabled: true
         depth_topic: /robot_4w4l/rear_camera/depth/image_rect_raw
         camera_info_topic: /robot_4w4l/rear_camera/depth/camera_info
         mount_frame: 4w4l/R_camera_link
