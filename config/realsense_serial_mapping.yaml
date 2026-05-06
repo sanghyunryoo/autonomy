@@ -1,37 +1,54 @@
 # Camera identity, topic, and point cloud merge map.
 # Auto-generated from URDF camera links.
-# Fill serial_no and model before running the hardware serial mapper.
+# Fill real serial_no values before running the hardware serial mapper.
 
 camera_bindings:
-  - role: front
-    enabled: true
-    serial_no: ""
-    model: d435
-    camera_name: front_camera
-    depth_topic: /robot_4w4l/front_camera/depth/image_rect_raw
-    camera_info_topic: /robot_4w4l/front_camera/depth/camera_info
-    publish_frame: F_camera_link
-    mount_frame: F_camera_link
-    optical_frame: F_camera_link
+  simulation:
+    - role: front
+      enabled: true
+      model: d435
+      camera_name: front_camera
+      depth_topic: /robot_4w4l/front_camera/depth/image_rect_raw
+      camera_info_topic: /robot_4w4l/front_camera/depth/camera_info
+      mount_frame: F_camera_link
+      optical_frame: F_camera_link
 
-  - role: rear
-    enabled: true
-    serial_no: ""
-    model: d435
-    camera_name: rear_camera
-    depth_topic: /robot_4w4l/rear_camera/depth/image_rect_raw
-    camera_info_topic: /robot_4w4l/rear_camera/depth/camera_info
-    publish_frame: R_camera_link
-    mount_frame: R_camera_link
-    optical_frame: R_camera_link
+    - role: rear
+      enabled: true
+      model: d435
+      camera_name: rear_camera
+      depth_topic: /robot_4w4l/rear_camera/depth/image_rect_raw
+      camera_info_topic: /robot_4w4l/rear_camera/depth/camera_info
+      mount_frame: R_camera_link
+      optical_frame: R_camera_link
+
+  real:
+    - role: front
+      enabled: true
+      serial_no: ""
+      model: d435
+      camera_name: front_camera
+      depth_topic: /front_camera/depth/image_rect_raw
+      camera_info_topic: /front_camera/depth/camera_info
+      mount_frame: F_camera_link
+      optical_frame: F_camera_link
+
+    - role: rear
+      enabled: true
+      serial_no: ""
+      model: d435
+      camera_name: rear_camera
+      depth_topic: /rear_camera/depth/image_rect_raw
+      camera_info_topic: /rear_camera/depth/camera_info
+      mount_frame: R_camera_link
+      optical_frame: R_camera_link
 
 stream:
   depth_width: 640
-  depth_height: 480
+  depth_height: 360
   depth_fps: 60
   max_range: 2.5
   fallback_profiles:
-    - {depth_width: 640, depth_height: 480, depth_fps: 30}
     - {depth_width: 848, depth_height: 480, depth_fps: 60}
     - {depth_width: 640, depth_height: 360, depth_fps: 60}
     - {depth_width: 424, depth_height: 240, depth_fps: 60}

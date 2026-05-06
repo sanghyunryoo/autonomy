@@ -67,6 +67,10 @@ def safe_topic_name(name: str) -> str:
     return text or "camera"
 
 
+def realsense_optical_frame(camera_name: str) -> str:
+    return f"{normalize_name(camera_name)}_depth_optical_frame"
+
+
 def infer_role(link_name: str, used_roles: set[str], index: int) -> str:
     normalized = normalize_name(link_name)
     lowered = normalized.lower()
@@ -175,28 +179,49 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
     lines = [
         "# Camera identity, topic, and point cloud merge map.",
         "# Auto-generated from URDF camera links.",
-        "# Fill serial_no and model before running the hardware serial mapper.",
+        "# Fill real serial_no values before running the hardware serial mapper.",
         "",
         "camera_bindings:",
+        "  simulation:",
     ]
 
     if not camera_links:
-        lines.append("  []")
+        lines.append("    []")
     else:
         for camera in camera_links:
             topic_base = safe_topic_name(camera.camera_name)
             lines.extend(
                 [
-                    f"  - role: {camera.role}",
-                    "    enabled: true",
-                    '    serial_no: ""',
-                    '    model: ""',
-                    f"    camera_name: {camera.camera_name}",
-                    f"    depth_topic: {DEFAULT_TOPIC_PREFIX}/{topic_base}/depth/image_rect_raw",
-                    f"    camera_info_topic: {DEFAULT_TOPIC_PREFIX}/{topic_base}/depth/camera_info",
-                    f"    publish_frame: {camera.link_name}",
-                    f"    mount_frame: {camera.link_name}",
-                    f"    optical_frame: {camera.optical_frame}",
+                    f"    - role: {camera.role}",
+                    "      enabled: true",
+                    "      model: d435",
+                    f"      camera_name: {camera.camera_name}",
+                    f"      depth_topic: {DEFAULT_TOPIC_PREFIX}/{topic_base}/depth/image_rect_raw",
+                    f"      camera_info_topic: {DEFAULT_TOPIC_PREFIX}/{topic_base}/depth/camera_info",
+                    f"      mount_frame: {camera.link_name}",
+                    f"      optical_frame: {camera.optical_frame}",
+                    "",
+                ]
+            )
+
+    lines.extend(["  real:"])
+
+    if not camera_links:
+        lines.append("    []")
+    else:
+        for camera in camera_links:
+            topic_base = safe_topic_name(camera.camera_name)
+            lines.extend(
+                [
+                    f"    - role: {camera.role}",
+                    "      enabled: true",
+                    '      serial_no: ""',
+                    "      model: d435",
+                    f"      camera_name: {camera.camera_name}",
+                    f"      depth_topic: /{topic_base}/depth/image_rect_raw",
+                    f"      camera_info_topic: /{topic_base}/depth/camera_info",
+                    f"      mount_frame: {camera.link_name}",
+                    f"      optical_frame: {realsense_optical_frame(camera.camera_name)}",
                     "",
                 ]
             )

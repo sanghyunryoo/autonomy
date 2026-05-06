@@ -46,16 +46,17 @@ source install/setup.bash
 ## Run
 
 For simulation, publish depth images and camera info on the topics configured in
-`config/realsense_serial_mapping.yaml`. This skips the hardware serial mapper
-and enables `use_sim_time` on the merge and elevation nodes. Only camera bindings
-with `enabled: true` are subscribed and merged:
+`config/realsense_serial_mapping.yaml` under `camera_bindings.simulation`. This
+skips the hardware serial mapper and enables `use_sim_time` on the merge and
+elevation nodes. Only camera bindings with `enabled: true` are subscribed and
+merged:
 
 ```bash
 ros2 launch height_map_ros2 multi_realsense_elevation.launch.py simulation:=true
 ```
 
 For hardware, keep serial numbers and camera merge settings in
-`config/realsense_serial_mapping.yaml`.
+`config/realsense_serial_mapping.yaml` under `camera_bindings.real`.
 First identify physical cameras:
 
 ```bash

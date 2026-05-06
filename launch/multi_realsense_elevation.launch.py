@@ -23,10 +23,20 @@ def _parse_bool(value, default=True):
     return bool(value)
 
 
-def _load_merge_parameters(mapping_file):
+def _select_camera_bindings(data, mode):
+    bindings = data.get("camera_bindings", [])
+    if isinstance(bindings, dict):
+        bindings = bindings.get(mode, [])
+    if not isinstance(bindings, list):
+        raise ValueError(f"'camera_bindings.{mode}' must be a list")
+    return bindings
+
+
+def _load_merge_parameters(mapping_file, simulation):
     with open(mapping_file, "r", encoding="utf-8") as stream:
         data = yaml.safe_load(stream) or {}
 
+    mode = "simulation" if _parse_bool(simulation, default=False) else "real"
     node_params = (
         data.get("pointcloud_merge_node", {})
         .get("ros__parameters", {})
@@ -37,7 +47,7 @@ def _load_merge_parameters(mapping_file):
 
     camera_names = []
     cameras = {}
-    for binding in data.get("camera_bindings", []) or []:
+    for binding in _select_camera_bindings(data, mode):
         if not isinstance(binding, dict):
             continue
         if not _parse_bool(binding.get("enabled", True), default=True):
@@ -56,7 +66,7 @@ def _load_merge_parameters(mapping_file):
                 frame_prefix,
             ),
             "optical_frame": _merge_frame(
-                binding.get("optical_frame", binding.get("publish_frame", "")),
+                binding.get("optical_frame", ""),
                 frame_prefix,
             ),
         }
@@ -87,7 +97,8 @@ def _merge_frame(frame, frame_prefix):
 
 def _make_merge_node(context, *args, **kwargs):
     mapping_file = LaunchConfiguration("serial_mapping").perform(context)
-    merge_parameters = _load_merge_parameters(mapping_file)
+    simulation = LaunchConfiguration("simulation").perform(context)
+    merge_parameters = _load_merge_parameters(mapping_file, simulation)
 
     return [
         Node(

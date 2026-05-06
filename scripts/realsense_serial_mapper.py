@@ -71,8 +71,10 @@ class RealSenseSerialMapper(Node):
             data = self._yaml.safe_load(stream) or {}
 
         bindings = data.get("camera_bindings", [])
+        if isinstance(bindings, dict):
+            bindings = bindings.get("real", [])
         if not isinstance(bindings, list):
-            raise ValueError("'camera_bindings' must be a list")
+            raise ValueError("'camera_bindings.real' must be a list")
 
         for binding in bindings:
             for key in ("role", "serial_no", "camera_name", "depth_topic", "camera_info_topic"):
@@ -237,9 +239,8 @@ class RealSenseSerialMapper(Node):
 
             stamp = self.get_clock().now().to_msg()
             frame_id = (
-                binding.get("publish_frame")
+                binding.get("optical_frame")
                 or binding.get("mount_frame")
-                or binding.get("optical_frame")
                 or binding["camera_name"]
             )
             depth = self._np.asanyarray(depth_frame.get_data()).astype(self._np.float32)

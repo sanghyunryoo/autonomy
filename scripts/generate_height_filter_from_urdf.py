@@ -303,8 +303,10 @@ def load_mapping(mapping_file: Path) -> Tuple[List[CameraBinding], dict]:
         data = yaml.safe_load(f) or {}
 
     bindings_raw = data.get("camera_bindings", [])
+    if isinstance(bindings_raw, dict):
+        bindings_raw = bindings_raw.get("simulation", bindings_raw.get("real", []))
     if not isinstance(bindings_raw, list):
-        raise ValueError("'camera_bindings' must be a list")
+        raise ValueError("'camera_bindings.simulation' must be a list")
 
     stream = data.get("stream", {}) or {}
     stream.setdefault("depth_width", 640)
