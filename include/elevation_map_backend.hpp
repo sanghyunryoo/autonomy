@@ -2,7 +2,7 @@
 
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include "height_map_ros2/elevation_grid.hpp"
+#include "elevation_grid.hpp"
 
 namespace height_map_ros2
 {

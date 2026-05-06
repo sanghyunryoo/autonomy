@@ -1,4 +1,4 @@
-#include "height_map_ros2/pointcloud_merger_node.hpp"
+#include "pointcloud_merger_node.hpp"
 
 #include <algorithm>
 #include <chrono>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "height_map_ros2/elevation_map_backend.hpp"
+#include "elevation_map_backend.hpp"
 
 namespace height_map_ros2
 {

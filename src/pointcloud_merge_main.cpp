@@ -1,6 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 
-#include "height_map_ros2/pointcloud_merger_node.hpp"
+#include "pointcloud_merger_node.hpp"
 
 int main(int argc, char ** argv)
 {

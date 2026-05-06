@@ -7,7 +7,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include "height_map_ros2/elevation_map_backend.hpp"
+#include "elevation_map_backend.hpp"
 #include "height_map_ros2/msg/masked_height_scan.hpp"
 
 namespace height_map_ros2

@@ -1,6 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 
-#include "height_map_ros2/elevation_mapping_node.hpp"
+#include "elevation_mapping_node.hpp"
 
 int main(int argc, char ** argv)
 {

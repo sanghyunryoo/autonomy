@@ -1,11 +1,11 @@
-#include "height_map_ros2/elevation_mapping_node.hpp"
+#include "elevation_mapping_node.hpp"
 
 #include <cmath>
 #include <utility>
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
-#include "height_map_ros2/min_z_elevation_backend.hpp"
+#include "min_z_elevation_backend.hpp"
 
 namespace height_map_ros2
 {

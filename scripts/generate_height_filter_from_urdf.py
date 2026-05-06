@@ -1025,7 +1025,7 @@ def parse_args():
 
     parser.add_argument(
         "--output-dir",
-        default="src/height_map_ros2/height_map_ros2/sensors",
+        default="src/height_map_ros2/sensors",
         help="Directory where ray_caster_fov.py and ray_caster_fov_cfg.py will be written.",
     )
 

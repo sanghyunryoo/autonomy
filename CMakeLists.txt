@@ -1,4 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
+
+# ROS Humble's Python packages are installed for the system interpreter on
+# standard apt-based installs. If a Conda environment is active, CMake may pick
+# Conda's python first and ROS code generation then misses modules such as em.
+if(DEFINED ENV{CONDA_PREFIX} AND EXISTS "/usr/bin/python3")
+  set(Python3_EXECUTABLE "/usr/bin/python3" CACHE FILEPATH "Python interpreter for ROS 2 generators" FORCE)
+  set(PYTHON_EXECUTABLE "/usr/bin/python3" CACHE FILEPATH "Python interpreter for ROS 2 CMake helpers" FORCE)
+endif()
+
 project(height_map_ros2)
 
 set(CMAKE_CXX_STANDARD 17)

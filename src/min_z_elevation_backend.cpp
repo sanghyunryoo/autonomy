@@ -1,4 +1,4 @@
-#include "height_map_ros2/min_z_elevation_backend.hpp"
+#include "min_z_elevation_backend.hpp"
 
 #include <cmath>
 #include <limits>

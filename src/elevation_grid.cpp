@@ -1,4 +1,4 @@
-#include "height_map_ros2/elevation_grid.hpp"
+#include "elevation_grid.hpp"
 
 #include <algorithm>
 #include <cmath>
