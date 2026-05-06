@@ -52,6 +52,8 @@ class RealSenseSerialMapper(Node):
         self._pipelines = {}
         self._intrinsics = {}
         self._depth_scales = {}
+        self._active_profiles = {}
+        self._logged_depth_publishers = set()
         self._start_cameras()
 
         period = 1.0 / max(1.0, float(self._stream["depth_fps"]))
@@ -125,6 +127,7 @@ class RealSenseSerialMapper(Node):
             self._pipelines[role] = pipeline
             self._intrinsics[role] = active_profile["intrinsics"]
             self._depth_scales[role] = active_profile["depth_scale"]
+            self._active_profiles[role] = active_profile
             self._depth_publishers[role] = self.create_publisher(
                 Image, binding["depth_topic"], qos_profile_sensor_data
             )
@@ -244,6 +247,15 @@ class RealSenseSerialMapper(Node):
             camera_info = self._camera_info_msg(self._intrinsics[role], stamp, frame_id)
             self._depth_publishers[role].publish(image)
             self._camera_info_publishers[role].publish(camera_info)
+
+            if role not in self._logged_depth_publishers:
+                active_profile = self._active_profiles.get(role, {})
+                self.get_logger().info(
+                    f"Publishing depth role={role} topic={binding['depth_topic']} "
+                    f"resolution={image.width}x{image.height} "
+                    f"hz={active_profile.get('depth_fps', self._stream['depth_fps'])}"
+                )
+                self._logged_depth_publishers.add(role)
 
     def _depth_to_image_msg(self, depth, stamp, frame_id):
         msg = Image()
