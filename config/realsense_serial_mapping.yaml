@@ -26,22 +26,22 @@ camera_bindings:
     - role: front
       enabled: true
       serial_no: ""
-      model: d435
+      model: d435i
       camera_name: front_camera
       depth_topic: /front_camera/depth/image_rect_raw
       camera_info_topic: /front_camera/depth/camera_info
       mount_frame: F_camera_link
-      optical_frame: front_camera_depth_optical_frame
+      optical_frame: F_camera_link
 
     - role: rear
       enabled: true
       serial_no: ""
-      model: d435
+      model: d435i
       camera_name: rear_camera
       depth_topic: /rear_camera/depth/image_rect_raw
       camera_info_topic: /rear_camera/depth/camera_info
       mount_frame: R_camera_link
-      optical_frame: rear_camera_depth_optical_frame
+      optical_frame: R_camera_link
 
 stream:
   depth_width: 640
