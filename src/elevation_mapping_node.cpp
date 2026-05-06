@@ -82,6 +82,8 @@ void ElevationMappingNode::loadParameters()
 
 void ElevationMappingNode::createIo()
 {
+  fps_window_start_ = std::chrono::steady_clock::now();
+
   cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
     input_cloud_topic_,
     rclcpp::SensorDataQoS(),
@@ -113,6 +115,21 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   fillDebugGrid(debug_grid);
   elevation_image_pub_->publish(debug_grid.toImageMsg());
   elevation_cloud_pub_->publish(gridToPointCloud(debug_grid));
+
+  ++fps_frame_count_;
+  const auto now = std::chrono::steady_clock::now();
+  const std::chrono::duration<double> elapsed = now - fps_window_start_;
+  if (elapsed.count() >= 1.0) {
+    const double fps = static_cast<double>(fps_frame_count_) / elapsed.count();
+    RCLCPP_INFO(
+      get_logger(),
+      "Elevation mapping FPS: %.1f input_points=%zu output_cells=%zu",
+      fps,
+      static_cast<std::size_t>(msg->width) * msg->height,
+      static_cast<std::size_t>(grid.spec.width()) * grid.spec.height());
+    fps_window_start_ = now;
+    fps_frame_count_ = 0;
+  }
 }
 
 void ElevationMappingNode::fillDebugGrid(ElevationGrid & grid) const

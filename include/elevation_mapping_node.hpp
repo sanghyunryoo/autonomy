@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 
@@ -36,6 +37,8 @@ private:
   double base_height_{0.5};
   bool fill_debug_outputs_{true};
   double debug_fill_z_{0.0};
+  std::chrono::steady_clock::time_point fps_window_start_;
+  std::size_t fps_frame_count_{0};
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr elevation_image_pub_;

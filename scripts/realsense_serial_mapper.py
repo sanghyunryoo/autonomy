@@ -131,11 +131,6 @@ class RealSenseSerialMapper(Node):
             self._camera_info_publishers[role] = self.create_publisher(
                 CameraInfo, binding["camera_info_topic"], qos_profile_sensor_data
             )
-            self.get_logger().info(
-                f"Started RealSense serial={serial} role={role} "
-                f"depth={active_profile['depth_width']}x{active_profile['depth_height']}"
-                f"@{active_profile['depth_fps']} topic={binding['depth_topic']}"
-            )
 
     def _candidate_profiles(self, binding):
         candidates = [
@@ -310,21 +305,6 @@ class RealSenseSerialMapper(Node):
         msg = String()
         msg.data = json.dumps(payload, sort_keys=True)
         self._binding_pub.publish(msg)
-
-        for binding in resolved:
-            if binding["connected"]:
-                self.get_logger().info(
-                    f"Mapped serial={binding['serial_no']} "
-                    f"role={binding['role']} topic={binding['depth_topic']}"
-                )
-            else:
-                self.get_logger().warn(
-                    f"Configured serial is not connected: "
-                    f"serial={binding['serial_no']} role={binding['role']}"
-                )
-
-        for serial in payload["unconfigured_connected_serials"]:
-            self.get_logger().warn(f"Connected RealSense is not configured: serial={serial}")
 
 
 def main():
