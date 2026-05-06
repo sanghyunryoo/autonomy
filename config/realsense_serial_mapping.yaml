@@ -31,7 +31,7 @@ camera_bindings:
       depth_topic: /front_camera/depth/image_rect_raw
       camera_info_topic: /front_camera/depth/camera_info
       mount_frame: F_camera_link
-      optical_frame: F_camera_link
+      optical_frame: front_camera_depth_optical_frame
 
     - role: rear
       enabled: true
@@ -41,14 +41,15 @@ camera_bindings:
       depth_topic: /rear_camera/depth/image_rect_raw
       camera_info_topic: /rear_camera/depth/camera_info
       mount_frame: R_camera_link
-      optical_frame: R_camera_link
+      optical_frame: rear_camera_depth_optical_frame
 
 stream:
   depth_width: 640
-  depth_height: 360
+  depth_height: 480
   depth_fps: 60
   max_range: 2.5
   fallback_profiles:
+    - {depth_width: 640, depth_height: 480, depth_fps: 30}
     - {depth_width: 848, depth_height: 480, depth_fps: 60}
     - {depth_width: 640, depth_height: 360, depth_fps: 60}
     - {depth_width: 424, depth_height: 240, depth_fps: 60}

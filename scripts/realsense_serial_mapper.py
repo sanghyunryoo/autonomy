@@ -90,7 +90,6 @@ class RealSenseSerialMapper(Node):
         stream.setdefault(
             "fallback_profiles",
             [
-                {"depth_width": 640, "depth_height": 480, "depth_fps": 30},
                 {"depth_width": 848, "depth_height": 480, "depth_fps": 60},
                 {"depth_width": 640, "depth_height": 360, "depth_fps": 60},
                 {"depth_width": 424, "depth_height": 240, "depth_fps": 60},
