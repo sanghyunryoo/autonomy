@@ -5,8 +5,8 @@ and producing a robot-centric elevation image.
 
 ## Structure
 
-- `realsense_serial_mapper.py`: hardware-only node that opens RealSense devices
-  by serial number and publishes per-camera depth images plus `CameraInfo`.
+- `realsense_serial_mapper.py`: hardware-only node that maps RealSense devices
+  by USB physical port and publishes per-camera depth images plus `CameraInfo`.
 - `PointCloudMergerNode`: subscribes to each camera depth image and intrinsics,
   publishes static TF from the URDF, back-projects depth maps into 3D, transforms
   points into `target_frame`, and publishes `~/merged_points`.
@@ -53,7 +53,7 @@ source install/setup.bash
 
 For simulation, publish depth images and camera info on the topics configured in
 `config/realsense_serial_mapping.yaml` under `camera_bindings.simulation`. This
-skips the hardware serial mapper and enables `use_sim_time` on the merge and
+skips the hardware mapper and enables `use_sim_time` on the merge and
 elevation nodes. Only camera bindings with `enabled: true` are subscribed and
 merged:
 
@@ -61,9 +61,9 @@ merged:
 ros2 launch height_map_ros2 multi_realsense_elevation.launch.py simulation:=true
 ```
 
-For hardware, keep serial numbers and camera merge settings in
+For hardware, keep USB port bindings and camera merge settings in
 `config/realsense_serial_mapping.yaml` under `camera_bindings.real`.
-First identify physical cameras:
+First identify the board port ids:
 
 ```bash
 sudo apt install python3-opencv python3-yaml
@@ -71,20 +71,23 @@ python3 -m pip install pyrealsense2
 ros2 run height_map_ros2 show_realsense_serials.py
 ```
 
-Each connected RealSense color image is displayed with its serial number overlaid.
-Use the image direction to decide which physical camera is `front`, `rear`, etc.,
-then edit `config/realsense_serial_mapping.yaml`.
+Each connected RealSense color image is displayed with its `usb_port_id`, serial,
+and model overlaid. Plug a camera into each board port, note the reported
+`usb_port_id`, then edit `config/realsense_serial_mapping.yaml`. After that, any
+camera plugged into that physical port is mapped to the configured role while
+`enabled` still controls whether the role is used.
 
-The serial mapper opens configured devices by serial number, publishes per-camera
-depth images plus `CameraInfo` at the configured depth FPS, and publishes the
-resolved bindings as JSON on `~/camera_bindings`.
+The hardware mapper resolves configured USB ports to the currently connected
+device serials, publishes per-camera depth images plus `CameraInfo` at the
+configured depth FPS, and publishes the resolved bindings as JSON on
+`~/camera_bindings`.
 
 ```bash
 ros2 launch height_map_ros2 multi_realsense_elevation.launch.py simulation:=false
 ```
 
 The elevation config stays hardware-independent. Edit
-`config/realsense_serial_mapping.yaml` for camera identity, enabled flags, topic
+`config/realsense_serial_mapping.yaml` for camera USB port roles, enabled flags, topic
 names, TF frame topology, and merge filter settings. Edit
 `config/elevation_mapping.yaml` for merged-cloud input/output, grid bounds, and
 elevation algorithm tuning.

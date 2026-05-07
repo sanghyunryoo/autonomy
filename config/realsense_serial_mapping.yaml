@@ -1,6 +1,8 @@
-# Camera identity, topic, and point cloud merge map.
+# Camera role, USB port, topic, and point cloud merge map.
 # Auto-generated from URDF camera links.
-# Fill real serial_no values before running the hardware serial mapper.
+# For hardware, fill usb_port_id with the board port reported by
+# show_realsense_serials.py. A camera plugged into that physical port will be
+# mapped to the configured role.
 
 camera_bindings:
   simulation:
@@ -25,7 +27,7 @@ camera_bindings:
   real:
     - role: front
       enabled: true
-      serial_no: ""
+      usb_port_id: ""
       model: d435i
       camera_name: front_camera
       depth_topic: /front_camera/depth/image_rect_raw
@@ -35,7 +37,7 @@ camera_bindings:
 
     - role: rear
       enabled: true
-      serial_no: ""
+      usb_port_id: ""
       model: d435i
       camera_name: rear_camera
       depth_topic: /rear_camera/depth/image_rect_raw

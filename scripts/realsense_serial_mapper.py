@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Publish serial-bound RealSense depth images on role-specific topics."""
+"""Publish USB-port-bound RealSense depth images on role-specific topics."""
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -31,6 +32,20 @@ def import_runtime_modules():
     return np, rs, yaml
 
 
+def parse_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "y", "on"):
+            return True
+        if normalized in ("false", "0", "no", "n", "off"):
+            return False
+    return bool(value)
+
+
 class RealSenseSerialMapper(Node):
     def __init__(self):
         super().__init__("realsense_serial_mapper")
@@ -42,7 +57,7 @@ class RealSenseSerialMapper(Node):
         self._config = self._load_config(self._mapping_file)
         self._bindings = [
             binding for binding in self._config["camera_bindings"]
-            if bool(binding.get("enabled", True))
+            if parse_bool(binding.get("enabled", True), default=True)
         ]
         self._stream = self._config["stream"]
 
@@ -79,10 +94,18 @@ class RealSenseSerialMapper(Node):
             raise ValueError("'camera_bindings.real' must be a list")
 
         for binding in bindings:
-            for key in ("role", "serial_no", "camera_name", "depth_topic", "camera_info_topic"):
+            binding.setdefault("enabled", True)
+            if not parse_bool(binding.get("enabled", True), default=True):
+                continue
+
+            for key in ("role", "camera_name", "depth_topic", "camera_info_topic"):
                 if key not in binding:
                     raise ValueError(f"Missing required key '{key}' in binding: {binding}")
-            binding.setdefault("enabled", True)
+            if "usb_port_id" not in binding and "serial_no" not in binding:
+                raise ValueError(
+                    "Missing required key 'usb_port_id' in binding "
+                    f"(legacy 'serial_no' is still accepted): {binding}"
+                )
 
         stream = data.get("stream", {})
         stream.setdefault("depth_width", 640)
@@ -105,25 +128,94 @@ class RealSenseSerialMapper(Node):
         devices = {}
         for device in context.query_devices():
             serial = device.get_info(self._rs.camera_info.serial_number)
-            name = device.get_info(self._rs.camera_info.name)
-            devices[serial] = name
+            devices[serial] = {
+                "serial": serial,
+                "name": self._safe_device_info(device, self._rs.camera_info.name),
+                "physical_port": self._safe_device_info(
+                    device, getattr(self._rs.camera_info, "physical_port", None)
+                ),
+            }
+            devices[serial]["usb_port_id"] = self._usb_port_id(devices[serial]["physical_port"])
         return devices
+
+    def _safe_device_info(self, device, info):
+        if info is None:
+            return ""
+        try:
+            return device.get_info(info)
+        except RuntimeError:
+            return ""
+
+    def _usb_port_id(self, physical_port):
+        text = str(physical_port or "")
+        matches = re.findall(r"(?<![\w.])\d+-\d+(?:\.\d+)*(?=[:/]|$)", text)
+        if matches:
+            return matches[-1]
+
+        # Some platforms expose a shorter value. Keep a stable non-empty suffix
+        # rather than forcing users back to camera serial numbers.
+        parts = [part for part in text.split("/") if part]
+        return parts[-1].split(":")[0] if parts else ""
+
+    def _resolve_binding_device(self, binding, connected, *, quiet=False):
+        usb_port_id = str(binding.get("usb_port_id", "")).strip()
+        if usb_port_id:
+            matches = [
+                info for info in connected.values()
+                if self._matches_usb_port(usb_port_id, info)
+            ]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                if not quiet:
+                    serials = ", ".join(sorted(info["serial"] for info in matches))
+                    self.get_logger().error(
+                        f"USB port id '{usb_port_id}' for role={binding['role']} "
+                        f"matches multiple RealSense devices: {serials}"
+                    )
+                return None
+
+            if not quiet:
+                self.get_logger().warn(
+                    f"Skipping disconnected RealSense usb_port_id={usb_port_id} "
+                    f"role={binding['role']}"
+                )
+            return None
+
+        serial = str(binding.get("serial_no", "")).strip()
+        if serial and serial in connected:
+            return connected[serial]
+
+        if not quiet:
+            self.get_logger().warn(
+                f"Skipping unresolved RealSense role={binding['role']} "
+                "because neither usb_port_id nor connected legacy serial_no matched"
+            )
+        return None
+
+    def _matches_usb_port(self, configured_port, device_info):
+        configured = str(configured_port).strip()
+        return configured in {
+            str(device_info.get("usb_port_id", "")).strip(),
+            str(device_info.get("physical_port", "")).strip(),
+        } or configured in str(device_info.get("physical_port", ""))
 
     def _start_cameras(self):
         connected = self._connected_devices()
         for binding in self._bindings:
-            serial = str(binding["serial_no"])
-            if serial not in connected:
-                self.get_logger().warn(
-                    f"Skipping disconnected RealSense serial={serial} role={binding['role']}"
-                )
+            device_info = self._resolve_binding_device(binding, connected)
+            if device_info is None:
                 continue
 
+            serial = device_info["serial"]
             pipeline, active_profile = self._start_pipeline_with_fallback(serial, binding)
             if pipeline is None:
                 continue
 
             role = binding["role"]
+            binding["resolved_serial_no"] = serial
+            binding["resolved_usb_port_id"] = device_info.get("usb_port_id", "")
+            binding["physical_port"] = device_info.get("physical_port", "")
             self._pipelines[role] = pipeline
             self._intrinsics[role] = active_profile["intrinsics"]
             self._depth_scales[role] = active_profile["depth_scale"]
@@ -297,20 +389,31 @@ class RealSenseSerialMapper(Node):
     def _publish_status(self):
         connected = self._connected_devices()
         connected_serials = set(connected.keys())
-        configured_serials = {str(binding["serial_no"]) for binding in self._bindings}
+        connected_usb_ports = {
+            info["usb_port_id"] for info in connected.values() if info.get("usb_port_id")
+        }
+        configured_usb_ports = {
+            str(binding.get("usb_port_id", "")).strip()
+            for binding in self._bindings
+            if str(binding.get("usb_port_id", "")).strip()
+        }
 
         resolved = []
         for binding in self._bindings:
-            serial = str(binding["serial_no"])
+            device_info = self._resolve_binding_device(binding, connected, quiet=True)
             item = dict(binding)
-            item["connected"] = serial in connected
-            item["device_model"] = connected.get(serial, "")
+            item["connected"] = device_info is not None
+            item["resolved_serial_no"] = device_info["serial"] if device_info else ""
+            item["resolved_usb_port_id"] = device_info.get("usb_port_id", "") if device_info else ""
+            item["physical_port"] = device_info.get("physical_port", "") if device_info else ""
+            item["device_model"] = device_info.get("name", "") if device_info else ""
             resolved.append(item)
 
         payload = {
             "connected_serials": sorted(connected_serials),
-            "unconfigured_connected_serials": sorted(connected_serials - configured_serials),
-            "missing_configured_serials": sorted(configured_serials - connected_serials),
+            "connected_usb_port_ids": sorted(connected_usb_ports),
+            "unconfigured_connected_usb_port_ids": sorted(connected_usb_ports - configured_usb_ports),
+            "missing_configured_usb_port_ids": sorted(configured_usb_ports - connected_usb_ports),
             "bindings": resolved,
         }
 

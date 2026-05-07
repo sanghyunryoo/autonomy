@@ -177,9 +177,9 @@ def quote(value: str) -> str:
 
 def render_mapping(camera_links: list[CameraLink]) -> str:
     lines = [
-        "# Camera identity, topic, and point cloud merge map.",
+        "# Camera role, USB port, topic, and point cloud merge map.",
         "# Auto-generated from URDF camera links.",
-        "# Fill real serial_no values before running the hardware serial mapper.",
+        "# Fill real usb_port_id values before running the hardware mapper.",
         "",
         "camera_bindings:",
         "  simulation:",
@@ -215,7 +215,7 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
                 [
                     f"    - role: {camera.role}",
                     "      enabled: true",
-                    '      serial_no: ""',
+                    '      usb_port_id: ""',
                     "      model: d435",
                     f"      camera_name: {camera.camera_name}",
                     f"      depth_topic: /{topic_base}/depth/image_rect_raw",

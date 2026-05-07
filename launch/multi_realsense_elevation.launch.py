@@ -140,7 +140,7 @@ def generate_launch_description():
         "simulation",
         default_value="false",
         description=(
-            "If true, skip hardware serial mapping, consume simulation topics "
+            "If true, skip hardware USB-port mapping, consume simulation topics "
             "directly, and enable use_sim_time on processing nodes."
         ),
     )
