@@ -80,6 +80,8 @@ def infer_role(link_name: str, used_roles: set[str], index: int) -> str:
         candidates.append("front")
     if lowered in ("r_camera_link", "rear_camera_link") or lowered.startswith(("r_camera", "rear_camera", "back_camera")):
         candidates.append("rear")
+    if lowered in ("a_camera_link", "adas_camera_link") or lowered.startswith(("a_camera", "adas_camera")):
+        candidates.append("adas")
     if lowered.startswith(("l_camera", "left_camera")):
         candidates.append("left")
     if lowered.startswith(("right_camera", "rt_camera")):
@@ -181,6 +183,19 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
         "# Auto-generated from URDF camera links.",
         "# Fill real usb_port_id values before running the hardware mapper.",
         "",
+        "operation_modes:",
+        "  drive:",
+        "    camera_roles: [front, rear]",
+        "    require_roles: []",
+        "",
+        "  adas:",
+        "    camera_roles: [front, rear, adas]",
+        "    require_roles: [adas]",
+        "",
+        "  fsd:",
+        "    camera_roles: [front, rear, adas]",
+        "    require_roles: [adas]",
+        "",
         "camera_bindings:",
         "  simulation:",
     ]
@@ -221,7 +236,7 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
                     f"      depth_topic: /{topic_base}/depth/image_rect_raw",
                     f"      camera_info_topic: /{topic_base}/depth/camera_info",
                     f"      mount_frame: {camera.link_name}",
-                    f"      optical_frame: {realsense_optical_frame(camera.camera_name)}",
+                    f"      optical_frame: {camera.optical_frame}",
                     "",
                 ]
             )
@@ -268,7 +283,7 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
 def parse_args() -> argparse.Namespace:
     root = package_root()
     parser = argparse.ArgumentParser(
-        description="Generate config/realsense_serial_mapping.yaml from URDF camera links."
+        description="Generate config/realsense_usb_mapping.yaml from URDF camera links."
     )
     parser.add_argument(
         "--urdf",
@@ -279,7 +294,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=root / "config" / "realsense_serial_mapping.yaml",
+        default=root / "config" / "realsense_usb_mapping.yaml",
         help="Output YAML path.",
     )
     parser.add_argument(

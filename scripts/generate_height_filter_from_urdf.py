@@ -64,7 +64,7 @@ class CameraBinding:
     depth_topic: str
     camera_info_topic: str
     enabled: bool = True
-    serial_no: str = ""
+    usb_port_id: str = ""
     camera_name: str = ""
 
 
@@ -80,6 +80,7 @@ class ResolvedCamera:
 
 @dataclass
 class ElevationGridExample:
+    name: str
     resolution: float
     x_min: float
     x_max: float
@@ -89,6 +90,10 @@ class ElevationGridExample:
     height: int
     isaac_size_x: float
     isaac_size_y: float
+
+
+def package_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
 
 # Approximate RealSense depth FOV values.
@@ -347,7 +352,7 @@ def load_mapping(mapping_file: Path) -> Tuple[List[CameraBinding], dict]:
                 depth_topic=str(raw["depth_topic"]),
                 camera_info_topic=str(raw["camera_info_topic"]),
                 enabled=enabled,
-                serial_no=str(raw.get("serial_no", "")),
+                usb_port_id=str(raw.get("usb_port_id", "")),
                 camera_name=str(raw.get("camera_name", "")),
             )
         )
@@ -361,23 +366,11 @@ def load_mapping(mapping_file: Path) -> Tuple[List[CameraBinding], dict]:
     return bindings, stream
 
 
-def load_elevation_grid_example(elevation_config: Path) -> ElevationGridExample:
-    if not elevation_config.exists():
-        raise FileNotFoundError(f"Elevation config YAML does not exist: {elevation_config}")
-
-    with elevation_config.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-
-    grid = (
-        data.get("elevation_mapping_node", {})
-        .get("ros__parameters", {})
-        .get("grid", {})
-    )
-
+def make_elevation_grid_example(name: str, grid: dict, elevation_config: Path) -> ElevationGridExample:
     required = ["resolution", "x_min", "x_max", "y_min", "y_max"]
     for key in required:
         if key not in grid:
-            raise ValueError(f"Missing elevation grid key '{key}' in: {elevation_config}")
+            raise ValueError(f"Missing {name} grid key '{key}' in: {elevation_config}")
 
     resolution = float(grid["resolution"])
     x_min = float(grid["x_min"])
@@ -386,7 +379,7 @@ def load_elevation_grid_example(elevation_config: Path) -> ElevationGridExample:
     y_max = float(grid["y_max"])
 
     if resolution <= 0.0 or x_max <= x_min or y_max <= y_min:
-        raise ValueError(f"Invalid elevation grid geometry in: {elevation_config}")
+        raise ValueError(f"Invalid {name} grid geometry in: {elevation_config}")
 
     # ROS ElevationGrid uses ceil((max - min) / resolution) cells.
     # IsaacLab GridPatternCfg produces round(size / resolution) + 1 rays.
@@ -395,6 +388,7 @@ def load_elevation_grid_example(elevation_config: Path) -> ElevationGridExample:
     height = int(math.ceil((y_max - y_min) / resolution))
 
     return ElevationGridExample(
+        name=name,
         resolution=resolution,
         x_min=x_min,
         x_max=x_max,
@@ -405,6 +399,31 @@ def load_elevation_grid_example(elevation_config: Path) -> ElevationGridExample:
         isaac_size_x=(width - 1) * resolution,
         isaac_size_y=(height - 1) * resolution,
     )
+
+
+def load_elevation_grid_examples(elevation_config: Path) -> Tuple[ElevationGridExample, ElevationGridExample | None]:
+    if not elevation_config.exists():
+        raise FileNotFoundError(f"Elevation config YAML does not exist: {elevation_config}")
+
+    with elevation_config.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+
+    params = data.get("elevation_mapping_node", {}).get("ros__parameters", {})
+    height_map_grid = make_elevation_grid_example(
+        "height_map",
+        params.get("grid", {}),
+        elevation_config,
+    )
+    local_grid_raw = (params.get("local_terrain_map", {}) or {}).get("grid")
+    local_height_map_grid = None
+    if isinstance(local_grid_raw, dict):
+        local_height_map_grid = make_elevation_grid_example(
+            "local_height_map",
+            local_grid_raw,
+            elevation_config,
+        )
+
+    return height_map_grid, local_height_map_grid
 
 
 def resolve_camera_spec(model: str, stream: dict) -> CameraSpec:
@@ -847,7 +866,23 @@ class RayCasterFOV(RayCaster):
                 visualizer.set_visibility(False)
 '''
 
-def generate_ray_caster_fov_cfg_py(cameras: List[ResolvedCamera], module_name: str) -> str:
+def grid_pattern_literal(grid: ElevationGridExample) -> str:
+    return (
+        "{"
+        f'"resolution": {grid.resolution:g}, '
+        f'"size": ({grid.isaac_size_x:g}, {grid.isaac_size_y:g}), '
+        f'"ros_width": {grid.width}, '
+        f'"ros_height": {grid.height}'
+        "}"
+    )
+
+
+def generate_ray_caster_fov_cfg_py(
+    cameras: List[ResolvedCamera],
+    module_name: str,
+    height_map_grid: ElevationGridExample,
+    local_height_map_grid: ElevationGridExample | None,
+) -> str:
     camera_entries = []
     per_camera_marker_entries = []
 
@@ -902,6 +937,11 @@ def generate_ray_caster_fov_cfg_py(cameras: List[ResolvedCamera], module_name: s
     # while `({...},)` remains a one-item tuple.
     camera_block = ",\n".join(camera_entries) + ","
     per_camera_marker_block = ",\n".join(per_camera_marker_entries)
+    local_pattern = (
+        grid_pattern_literal(local_height_map_grid)
+        if local_height_map_grid is not None
+        else "None"
+    )
 
     return f'''from isaaclab.utils import configclass
 from isaaclab.markers import VisualizationMarkersCfg
@@ -952,6 +992,10 @@ CAMERA_FOV_DATA = (
 )
 
 
+HEIGHT_MAP_PATTERN = {grid_pattern_literal(height_map_grid)}
+LOCAL_HEIGHT_MAP_PATTERN = {local_pattern}
+
+
 @configclass
 class RayCasterFOVCfg(RayCasterCfg):
     """RayCaster config with URDF+camera-FOV mask.
@@ -1000,23 +1044,24 @@ class RayCasterFOVCfg(RayCasterCfg):
 '''
 
 def parse_args():
+    root = package_root()
     parser = argparse.ArgumentParser(
         description="Generate IsaacLab RayCasterFOV sensor code from URDF and camera binding YAML."
     )
 
     parser.add_argument(
         "--mapping-file",
-        default="src/height_map_ros2/config/realsense_serial_mapping.yaml",
+        default=str(root / "config" / "realsense_usb_mapping.yaml"),
         help="Camera binding YAML path.",
     )
     parser.add_argument(
         "--urdf",
-        default="src/height_map_ros2/urdf/f16.urdf",
+        default=str(root / "urdf" / "f16.urdf"),
         help="Robot URDF path.",
     )
     parser.add_argument(
         "--elevation-config",
-        default="src/height_map_ros2/config/elevation_mapping.yaml",
+        default=str(root / "config" / "elevation_mapping.yaml"),
         help="Elevation mapping YAML path used to print a matching IsaacLab GridPatternCfg example.",
     )
     parser.add_argument(
@@ -1027,7 +1072,7 @@ def parse_args():
 
     parser.add_argument(
         "--output-dir",
-        default="src/height_map_ros2/sensors",
+        default=str(root / "sensors"),
         help="Directory where ray_caster_fov.py and ray_caster_fov_cfg.py will be written.",
     )
 
@@ -1055,7 +1100,7 @@ def main():
     base_link = normalize_frame_name(args.base_link)
 
     bindings, stream = load_mapping(mapping_file)
-    elevation_grid = load_elevation_grid_example(elevation_config)
+    height_map_grid, local_height_map_grid = load_elevation_grid_examples(elevation_config)
     link_names, child_to_parent, _ = load_urdf_tree(urdf_path)
 
     if base_link not in link_names:
@@ -1097,6 +1142,8 @@ def main():
     ray_caster_cfg_code = generate_ray_caster_fov_cfg_py(
         cameras=resolved_cameras,
         module_name=module_name,
+        height_map_grid=height_map_grid,
+        local_height_map_grid=local_height_map_grid,
     )
 
     sensor_path.write_text(header + ray_caster_code, encoding="utf-8")
@@ -1121,10 +1168,10 @@ def main():
     print("Use in IsaacLab config:")
     print(f"  from <your_package>.sensors.{module_name}_cfg import RayCasterFOVCfg")
     print("")
-    print("  # Matched to elevation_mapping.yaml grid:")
+    print("  # Matched to elevation_mapping.yaml height_map grid:")
     print(
-        f"  #   ROS cells: width={elevation_grid.width}, height={elevation_grid.height}, "
-        f"resolution={elevation_grid.resolution:g}"
+        f"  #   ROS cells: width={height_map_grid.width}, height={height_map_grid.height}, "
+        f"resolution={height_map_grid.resolution:g}"
     )
     print("  #   ROS ElevationGrid uses ceil((max - min) / resolution).")
     print("  #   IsaacLab GridPatternCfg uses round(size / resolution) + 1 rays.")
@@ -1135,14 +1182,31 @@ def main():
     print('      ray_alignment="yaw",')
     print(
         "      pattern_cfg=patterns.GridPatternCfg("
-        f"resolution={elevation_grid.resolution:g}, "
-        f"size=[{elevation_grid.isaac_size_x:g}, {elevation_grid.isaac_size_y:g}]"
+        f"resolution={height_map_grid.resolution:g}, "
+        f"size=[{height_map_grid.isaac_size_x:g}, {height_map_grid.isaac_size_y:g}]"
         "),"
     )
     print("      debug_vis=True,")
     print('      mesh_prim_paths=["/World/ground"],')
     print("      debug_show_invalid=False,")
     print("  )")
+    if local_height_map_grid is not None:
+        print("")
+        print("  # Add separately in adas/fsd modes to match local_terrain_map.grid:")
+        print("  local_height_map = RayCasterFOVCfg(")
+        print('      prim_path="{ENV_REGEX_NS}/Robot/base_link",')
+        print("      offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
+        print('      ray_alignment="yaw",')
+        print(
+            "      pattern_cfg=patterns.GridPatternCfg("
+            f"resolution={local_height_map_grid.resolution:g}, "
+            f"size=[{local_height_map_grid.isaac_size_x:g}, {local_height_map_grid.isaac_size_y:g}]"
+            "),"
+        )
+        print("      debug_vis=True,")
+        print('      mesh_prim_paths=["/World/ground"],')
+        print("      debug_show_invalid=False,")
+        print("  )")
     print("")
     print("Use in an IsaacLab observation file:")
     print("")

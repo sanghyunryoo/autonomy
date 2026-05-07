@@ -1,7 +1,9 @@
 #include "elevation_mapping_node.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <stdexcept>
 #include <utility>
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -16,6 +18,9 @@ ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions & options)
 {
   loadParameters();
   elevation_backend_ = std::make_unique<MinZElevationBackend>(grid_spec_);
+  if (local_terrain_map_enabled_) {
+    local_terrain_backend_ = std::make_unique<MinZElevationBackend>(local_terrain_grid_spec_);
+  }
   createIo();
 }
 
@@ -26,8 +31,24 @@ void ElevationMappingNode::loadParameters()
   output_cloud_topic_ = declare_parameter<std::string>("output_cloud_topic", output_cloud_topic_);
   output_masked_height_scan_topic_ = declare_parameter<std::string>(
     "output_masked_height_scan_topic", output_masked_height_scan_topic_);
+  operation_mode_ = declare_parameter<std::string>("operation_mode", operation_mode_);
+  std::transform(operation_mode_.begin(), operation_mode_.end(), operation_mode_.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  if (operation_mode_ != "drive" && operation_mode_ != "adas" && operation_mode_ != "fsd") {
+    throw std::invalid_argument("operation_mode must be one of: drive, adas, fsd");
+  }
+
   command_filter_service_name_ = declare_parameter<std::string>(
     "command_filter_service_name", command_filter_service_name_);
+  output_local_terrain_image_topic_ = declare_parameter<std::string>(
+    "local_terrain_map.output_image_topic", output_local_terrain_image_topic_);
+  output_local_terrain_cloud_topic_ = declare_parameter<std::string>(
+    "local_terrain_map.output_cloud_topic", output_local_terrain_cloud_topic_);
+  output_local_terrain_scan_topic_ = declare_parameter<std::string>(
+    "local_terrain_map.output_scan_topic", output_local_terrain_scan_topic_);
+  local_terrain_map_config_enabled_ = declare_parameter<bool>(
+    "local_terrain_map.enabled", local_terrain_map_config_enabled_);
 
   dds_height_map_enabled_ = declare_parameter<bool>("dds.height_map.enabled", dds_height_map_enabled_);
   dds_domain_id_ = declare_parameter<int>("dds.height_map.domain_id", dds_domain_id_);
@@ -43,6 +64,25 @@ void ElevationMappingNode::loadParameters()
   grid_spec_.y_max = declare_parameter<double>("grid.y_max", grid_spec_.y_max);
   grid_spec_.min_z = declare_parameter<double>("grid.min_z", grid_spec_.min_z);
   grid_spec_.max_z = declare_parameter<double>("grid.max_z", grid_spec_.max_z);
+
+  local_terrain_grid_spec_ = grid_spec_;
+  local_terrain_grid_spec_.x_max = std::max(grid_spec_.x_max, 2.0);
+  local_terrain_grid_spec_.resolution = declare_parameter<double>(
+    "local_terrain_map.grid.resolution", local_terrain_grid_spec_.resolution);
+  local_terrain_grid_spec_.x_min = declare_parameter<double>(
+    "local_terrain_map.grid.x_min", local_terrain_grid_spec_.x_min);
+  local_terrain_grid_spec_.x_max = declare_parameter<double>(
+    "local_terrain_map.grid.x_max", local_terrain_grid_spec_.x_max);
+  local_terrain_grid_spec_.y_min = declare_parameter<double>(
+    "local_terrain_map.grid.y_min", local_terrain_grid_spec_.y_min);
+  local_terrain_grid_spec_.y_max = declare_parameter<double>(
+    "local_terrain_map.grid.y_max", local_terrain_grid_spec_.y_max);
+  local_terrain_grid_spec_.min_z = declare_parameter<double>(
+    "local_terrain_map.grid.min_z", local_terrain_grid_spec_.min_z);
+  local_terrain_grid_spec_.max_z = declare_parameter<double>(
+    "local_terrain_map.grid.max_z", local_terrain_grid_spec_.max_z);
+  local_terrain_map_enabled_ =
+    local_terrain_map_config_enabled_ && (operation_mode_ == "adas" || operation_mode_ == "fsd");
 
   // Declared here as the stable ROS2 parameter surface for the production
   // backend that will wrap the existing realsense_points_test algorithm.
@@ -113,6 +153,14 @@ void ElevationMappingNode::createIo()
     output_cloud_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   masked_height_scan_pub_ = create_publisher<height_map_ros2::msg::MaskedHeightScan>(
     output_masked_height_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
+  if (local_terrain_map_enabled_) {
+    local_terrain_image_pub_ = create_publisher<sensor_msgs::msg::Image>(
+      output_local_terrain_image_topic_, 10);
+    local_terrain_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      output_local_terrain_cloud_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
+    local_terrain_scan_pub_ = create_publisher<height_map_ros2::msg::MaskedHeightScan>(
+      output_local_terrain_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
+  }
   command_filter_srv_ = create_service<height_map_ros2::srv::CommandFilter>(
     command_filter_service_name_,
     [this](
@@ -143,6 +191,17 @@ void ElevationMappingNode::createIo()
     "Publishing masked height scan: %s",
     output_masked_height_scan_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Serving command filter: %s", command_filter_service_name_.c_str());
+  RCLCPP_INFO(get_logger(), "Operation mode: %s", operation_mode_.c_str());
+  if (local_terrain_map_enabled_) {
+    RCLCPP_INFO(
+      get_logger(),
+      "Publishing local terrain map: image=%s points=%s scan=%s grid=%ux%u",
+      output_local_terrain_image_topic_.c_str(),
+      output_local_terrain_cloud_topic_.c_str(),
+      output_local_terrain_scan_topic_.c_str(),
+      local_terrain_grid_spec_.width(),
+      local_terrain_grid_spec_.height());
+  }
   if (dds_height_map_pub_) {
     RCLCPP_INFO(
       get_logger(),
@@ -167,6 +226,15 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   masked_height_scan_pub_->publish(toRosMaskedHeightScan(height_map));
   if (dds_height_map_pub_) {
     dds_height_map_pub_->publish(toDdsHeightMap(height_map));
+  }
+
+  if (local_terrain_backend_) {
+    auto local_grid = local_terrain_backend_->build(*msg, msg->header);
+    local_terrain_scan_pub_->publish(toRosMaskedHeightScan(
+      gridToHeightMapFrame(local_grid, height_scan_offset_, base_height_)));
+    fillDebugGrid(local_grid);
+    local_terrain_image_pub_->publish(local_grid.toImageMsg());
+    local_terrain_cloud_pub_->publish(gridToPointCloud(local_grid));
   }
 
   auto debug_grid = grid;

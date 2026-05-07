@@ -43,12 +43,19 @@ private:
   std::string output_image_topic_{"~/elevation_image"};
   std::string output_cloud_topic_{"~/elevation_points"};
   std::string output_masked_height_scan_topic_{"~/masked_height_scan"};
+  std::string operation_mode_{"drive"};
   std::string command_filter_service_name_{"~/command_filter"};
+  std::string output_local_terrain_image_topic_{"~/local_terrain_image"};
+  std::string output_local_terrain_cloud_topic_{"~/local_terrain_points"};
+  std::string output_local_terrain_scan_topic_{"~/local_terrain_map"};
+  bool local_terrain_map_config_enabled_{true};
+  bool local_terrain_map_enabled_{false};
   bool dds_height_map_enabled_{true};
   int dds_domain_id_{0};
   std::string dds_height_map_topic_{"height_map"};
   std::string dds_height_map_type_{"core_dds::HeightMap"};
   GridSpec grid_spec_;
+  GridSpec local_terrain_grid_spec_;
   double height_scan_offset_{0.5};
   double base_height_{0.5};
   double obstacle_floor_z_{-0.47957};
@@ -67,8 +74,12 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr elevation_image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr elevation_cloud_pub_;
   rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr masked_height_scan_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr local_terrain_image_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr local_terrain_cloud_pub_;
+  rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr local_terrain_scan_pub_;
   rclcpp::Service<height_map_ros2::srv::CommandFilter>::SharedPtr command_filter_srv_;
   std::unique_ptr<ElevationMapBackend> elevation_backend_;
+  std::unique_ptr<ElevationMapBackend> local_terrain_backend_;
   std::unique_ptr<DdsHeightMapPublisher> dds_height_map_pub_;
 };
 

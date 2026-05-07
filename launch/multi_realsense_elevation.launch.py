@@ -32,11 +32,62 @@ def _select_camera_bindings(data, mode):
     return bindings
 
 
-def _load_merge_parameters(mapping_file, simulation):
+def _default_operation_modes():
+    return {
+        "drive": {"camera_roles": ["front", "rear"], "require_roles": []},
+        "adas": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
+        "fsd": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
+    }
+
+
+def _select_operation_mode(data, operation_mode):
+    mode_name = str(operation_mode or "drive").strip().lower()
+    modes = data.get("operation_modes") or _default_operation_modes()
+    if mode_name not in modes:
+        valid = ", ".join(sorted(modes.keys()))
+        raise ValueError(f"Unsupported operation_mode '{mode_name}'. Valid modes: {valid}")
+
+    mode = modes[mode_name] or {}
+    camera_roles = [str(role) for role in mode.get("camera_roles", [])]
+    require_roles = [str(role) for role in mode.get("require_roles", [])]
+    return mode_name, camera_roles, require_roles
+
+
+def _filter_bindings_for_operation_mode(data, binding_space, operation_mode):
+    mode_name, camera_roles, require_roles = _select_operation_mode(data, operation_mode)
+    role_allowlist = set(camera_roles)
+    selected = []
+    role_to_binding = {}
+
+    for binding in _select_camera_bindings(data, binding_space):
+        if not isinstance(binding, dict):
+            continue
+        role = str(binding.get("role", ""))
+        if camera_roles and role not in role_allowlist:
+            continue
+        role_to_binding[role] = binding
+        if _parse_bool(binding.get("enabled", True), default=True):
+            selected.append(binding)
+
+    enabled_roles = {str(binding.get("role", "")) for binding in selected}
+    missing = [
+        role for role in require_roles
+        if role not in role_to_binding or role not in enabled_roles
+    ]
+    if missing:
+        raise RuntimeError(
+            f"operation_mode '{mode_name}' requires enabled camera role(s): "
+            + ", ".join(missing)
+        )
+
+    return selected
+
+
+def _load_merge_parameters(mapping_file, simulation, operation_mode):
     with open(mapping_file, "r", encoding="utf-8") as stream:
         data = yaml.safe_load(stream) or {}
 
-    mode = "simulation" if _parse_bool(simulation, default=False) else "real"
+    binding_space = "simulation" if _parse_bool(simulation, default=False) else "real"
     node_params = (
         data.get("pointcloud_merge_node", {})
         .get("ros__parameters", {})
@@ -47,10 +98,8 @@ def _load_merge_parameters(mapping_file, simulation):
 
     camera_names = []
     cameras = {}
-    for binding in _select_camera_bindings(data, mode):
+    for binding in _filter_bindings_for_operation_mode(data, binding_space, operation_mode):
         if not isinstance(binding, dict):
-            continue
-        if not _parse_bool(binding.get("enabled", True), default=True):
             continue
 
         role = str(binding["role"])
@@ -77,6 +126,24 @@ def _load_merge_parameters(mapping_file, simulation):
     return node_params
 
 
+def _load_operation_mode_from_config(elevation_config):
+    with open(elevation_config, "r", encoding="utf-8") as stream:
+        data = yaml.safe_load(stream) or {}
+    return str(
+        data.get("elevation_mapping_node", {})
+        .get("ros__parameters", {})
+        .get("operation_mode", "drive")
+    )
+
+
+def _resolve_operation_mode(context):
+    operation_mode = LaunchConfiguration("operation_mode").perform(context).strip()
+    if operation_mode:
+        return operation_mode
+    elevation_config = LaunchConfiguration("elevation_config").perform(context)
+    return _load_operation_mode_from_config(elevation_config)
+
+
 def _frame_prefix_from_target(target_frame):
     suffix = "base_link"
     if target_frame == suffix:
@@ -96,9 +163,10 @@ def _merge_frame(frame, frame_prefix):
 
 
 def _make_merge_node(context, *args, **kwargs):
-    mapping_file = LaunchConfiguration("serial_mapping").perform(context)
+    mapping_file = LaunchConfiguration("camera_mapping").perform(context)
     simulation = LaunchConfiguration("simulation").perform(context)
-    merge_parameters = _load_merge_parameters(mapping_file, simulation)
+    operation_mode = _resolve_operation_mode(context)
+    merge_parameters = _load_merge_parameters(mapping_file, simulation, operation_mode)
 
     return [
         Node(
@@ -115,10 +183,43 @@ def _make_merge_node(context, *args, **kwargs):
     ]
 
 
+def _make_usb_mapper_node(context, *args, **kwargs):
+    return [
+        Node(
+            package="height_map_ros2",
+            executable="realsense_usb_mapper.py",
+            name="realsense_usb_mapper",
+            output="screen",
+            parameters=[
+                {
+                    "mapping_file": LaunchConfiguration("camera_mapping"),
+                    "operation_mode": _resolve_operation_mode(context),
+                }
+            ],
+        )
+    ]
+
+
+def _make_elevation_node(context, *args, **kwargs):
+    return [
+        Node(
+            package="height_map_ros2",
+            executable="elevation_mapping_node",
+            name="elevation_mapping_node",
+            output="screen",
+            parameters=[
+                LaunchConfiguration("elevation_config"),
+                {"use_sim_time": LaunchConfiguration("simulation")},
+                {"operation_mode": _resolve_operation_mode(context)},
+            ],
+        )
+    ]
+
+
 def generate_launch_description():
     package_share = Path(get_package_share_directory("height_map_ros2"))
     default_elevation_config = package_share / "config" / "elevation_mapping.yaml"
-    default_serial_mapping = package_share / "config" / "realsense_serial_mapping.yaml"
+    default_camera_mapping = package_share / "config" / "realsense_usb_mapping.yaml"
     default_urdf = package_share / "urdf" / "f16.urdf"
 
     elevation_config_arg = DeclareLaunchArgument(
@@ -126,9 +227,9 @@ def generate_launch_description():
         default_value=str(default_elevation_config),
         description="Path to the elevation mapping parameter file.",
     )
-    serial_mapping_arg = DeclareLaunchArgument(
-        "serial_mapping",
-        default_value=str(default_serial_mapping),
+    camera_mapping_arg = DeclareLaunchArgument(
+        "camera_mapping",
+        default_value=str(default_camera_mapping),
         description="Path to the RealSense camera mapping and merge parameter file.",
     )
     urdf_arg = DeclareLaunchArgument(
@@ -144,36 +245,31 @@ def generate_launch_description():
             "directly, and enable use_sim_time on processing nodes."
         ),
     )
+    operation_mode_arg = DeclareLaunchArgument(
+        "operation_mode",
+        default_value="",
+        description=(
+            "Operation mode: drive, adas, or fsd. If empty, use elevation_config "
+            "elevation_mapping_node.ros__parameters.operation_mode."
+        ),
+    )
 
-    serial_mapper_node = Node(
-        package="height_map_ros2",
-        executable="realsense_serial_mapper.py",
-        name="realsense_serial_mapper",
-        output="screen",
-        parameters=[{"mapping_file": LaunchConfiguration("serial_mapping")}],
+    usb_mapper_node = OpaqueFunction(
+        function=_make_usb_mapper_node,
         condition=UnlessCondition(LaunchConfiguration("simulation")),
     )
 
     merge_node = OpaqueFunction(function=_make_merge_node)
-
-    elevation_node = Node(
-        package="height_map_ros2",
-        executable="elevation_mapping_node",
-        name="elevation_mapping_node",
-        output="screen",
-        parameters=[
-            LaunchConfiguration("elevation_config"),
-            {"use_sim_time": LaunchConfiguration("simulation")},
-        ],
-    )
+    elevation_node = OpaqueFunction(function=_make_elevation_node)
 
     return LaunchDescription(
         [
             elevation_config_arg,
-            serial_mapping_arg,
+            camera_mapping_arg,
             urdf_arg,
             simulation_arg,
-            serial_mapper_node,
+            operation_mode_arg,
+            usb_mapper_node,
             merge_node,
             elevation_node,
         ]

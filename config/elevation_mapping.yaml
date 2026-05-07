@@ -9,6 +9,7 @@ elevation_mapping_node:
     output_cloud_topic: ~/elevation_points
     output_masked_height_scan_topic: ~/masked_height_scan
     command_filter_service_name: ~/command_filter
+    operation_mode: adas
 
     dds:
       height_map:
@@ -26,6 +27,21 @@ elevation_mapping_node:
       y_max: 0.55
       min_z: -0.60
       max_z: 0.50
+
+    local_terrain_map:
+      # Automatically published only in adas/fsd operation modes.
+      enabled: true
+      output_image_topic: ~/local_terrain_image
+      output_cloud_topic: ~/local_terrain_points
+      output_scan_topic: ~/local_terrain_map
+      grid:
+        resolution: 0.05
+        x_min: -0.80
+        x_max: 2.00
+        y_min: -0.75
+        y_max: 0.75
+        min_z: -0.60
+        max_z: 0.50
 
     # Parameters reserved for the production backend that will wrap the current
     # realsense_points_test elevation algorithm.

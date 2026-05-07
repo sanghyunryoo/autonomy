@@ -1,11 +1,31 @@
 # Camera role, USB port, topic, and point cloud merge map.
 # Auto-generated from URDF camera links.
-# For hardware, fill usb_port_id with the board port reported by
-# show_realsense_serials.py. A camera plugged into that physical port will be
-# mapped to the configured role.
+# Fill real usb_port_id values before running the hardware mapper.
+
+operation_modes:
+  drive:
+    camera_roles: [front, rear]
+    require_roles: []
+
+  adas:
+    camera_roles: [front, rear, adas]
+    require_roles: [adas]
+
+  fsd:
+    camera_roles: [front, rear, adas]
+    require_roles: [adas]
 
 camera_bindings:
   simulation:
+    - role: adas
+      enabled: true
+      model: d435
+      camera_name: adas_camera
+      depth_topic: /robot_4w4l/adas_camera/depth/image_rect_raw
+      camera_info_topic: /robot_4w4l/adas_camera/depth/camera_info
+      mount_frame: A_camera_link
+      optical_frame: A_camera_link
+
     - role: front
       enabled: true
       model: d435
@@ -25,10 +45,20 @@ camera_bindings:
       optical_frame: R_camera_link
 
   real:
+    - role: adas
+      enabled: true
+      usb_port_id: ""
+      model: d435
+      camera_name: adas_camera
+      depth_topic: /adas_camera/depth/image_rect_raw
+      camera_info_topic: /adas_camera/depth/camera_info
+      mount_frame: A_camera_link
+      optical_frame: A_camera_link
+
     - role: front
       enabled: true
       usb_port_id: ""
-      model: d435i
+      model: d435
       camera_name: front_camera
       depth_topic: /front_camera/depth/image_rect_raw
       camera_info_topic: /front_camera/depth/camera_info
@@ -38,7 +68,7 @@ camera_bindings:
     - role: rear
       enabled: true
       usb_port_id: ""
-      model: d435i
+      model: d435
       camera_name: rear_camera
       depth_topic: /rear_camera/depth/image_rect_raw
       camera_info_topic: /rear_camera/depth/camera_info
@@ -51,6 +81,7 @@ stream:
   depth_fps: 60
   max_range: 2.5
   fallback_profiles:
+    - {depth_width: 640, depth_height: 480, depth_fps: 30}
     - {depth_width: 848, depth_height: 480, depth_fps: 60}
     - {depth_width: 640, depth_height: 360, depth_fps: 60}
     - {depth_width: 424, depth_height: 240, depth_fps: 60}

@@ -1038,4 +1038,55 @@
     <child
       link="R_camera_link" />
   </joint>
+  <link
+    name="A_camera_link">
+    <inertial>
+      <origin
+        xyz="-0.00047920613905808 3.01154151762795E-05 -0.0125657257519308"
+        rpy="0 0 0" />
+      <mass
+        value="0.1" />
+      <inertia
+        ixx="0.000114545143970138"
+        ixy="3.03595147302089E-06"
+        ixz="-1.13423804692718E-05"
+        iyy="0.00077159613296823"
+        iyz="-1.51936219639973E-07"
+        izz="0.000763742678007926" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://RobotAssembly_v2_10_cam_2/meshes/F_camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.372549019607843 0.372549019607843 0.372549019607843 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://RobotAssembly_v2_10_cam_2/meshes/F_camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="A_camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.24 0 0.12"
+      rpy="-1.5707963267949 0 -1.5707963267949" />
+    <parent
+      link="base_link" />
+    <child
+      link="A_camera_link" />
+  </joint>
 </robot>
