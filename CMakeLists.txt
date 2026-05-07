@@ -14,6 +14,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
+find_package(fastcdr REQUIRED)
+find_package(fastrtps REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
@@ -25,6 +27,7 @@ find_package(tf2_ros REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MaskedHeightScan.msg"
+  "srv/CommandFilter.srv"
   DEPENDENCIES std_msgs
 )
 
@@ -49,9 +52,11 @@ ament_target_dependencies(pointcloud_merge_node
 )
 
 add_executable(elevation_mapping_node
+  src/dds_height_map_publisher.cpp
   src/elevation_grid.cpp
   src/elevation_mapping_main.cpp
   src/elevation_mapping_node.cpp
+  src/height_map_model.cpp
   src/min_z_elevation_backend.cpp
 )
 
@@ -67,6 +72,7 @@ ament_target_dependencies(elevation_mapping_node
 )
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(elevation_mapping_node "${cpp_typesupport_target}")
+target_link_libraries(elevation_mapping_node fastcdr fastrtps)
 
 install(TARGETS
   pointcloud_merge_node
@@ -75,6 +81,10 @@ install(TARGETS
 )
 
 install(DIRECTORY config launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY idl
   DESTINATION share/${PROJECT_NAME}
 )
 

@@ -8,6 +8,14 @@ elevation_mapping_node:
     output_image_topic: ~/elevation_image
     output_cloud_topic: ~/elevation_points
     output_masked_height_scan_topic: ~/masked_height_scan
+    command_filter_service_name: ~/command_filter
+
+    dds:
+      height_map:
+        enabled: true
+        domain_id: 0
+        topic: height_map
+        type: core_dds::HeightMap
 
     # Robot-centric elevation grid in the merged point cloud frame.
     grid:
@@ -77,3 +85,11 @@ elevation_mapping_node:
 
       runtime:
         min_runtime_fps: 60
+
+    command_filter:
+      # Any measured point at least this high from the robot floor is treated
+      # as a blocking obstacle.
+      obstacle_floor_z: -0.47957
+      obstacle_height_threshold: 0.25
+      forward_lateral_half_width: 0.25
+      right_longitudinal_half_width: 0.25

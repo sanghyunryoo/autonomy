@@ -11,7 +11,13 @@ and producing a robot-centric elevation image.
   publishes static TF from the URDF, back-projects depth maps into 3D, transforms
   points into `target_frame`, and publishes `~/merged_points`.
 - `ElevationMappingNode`: subscribes to the merged point cloud and publishes
-  `~/elevation_image` (`sensor_msgs/Image`, `32FC1`).
+  `~/elevation_image` (`sensor_msgs/Image`, `32FC1`), the ROS2
+  `~/masked_height_scan`, and a DDS `core_dds::HeightMap` sample on
+  `height_map`.
+- `srv/CommandFilter`: checks the latest height map for blocking obstacles in
+  the requested forward/right movement corridor.
+- `HeightMapFrame`: internal model used to keep ROS2 and DDS output contracts
+  separate.
 - `ElevationMapBackend`: algorithm boundary for elevation conversion.
 - `MinZElevationBackend`: simple starter backend that stores the minimum z value
   per grid cell.
@@ -82,3 +88,32 @@ The elevation config stays hardware-independent. Edit
 names, TF frame topology, and merge filter settings. Edit
 `config/elevation_mapping.yaml` for merged-cloud input/output, grid bounds, and
 elevation algorithm tuning.
+
+## DDS output
+
+The DDS-facing IDL is installed as `share/height_map_ros2/idl/HeightMap.idl`:
+
+```idl
+module core_dds {
+  struct HeightMap {
+    sequence<float> data;
+  };
+};
+```
+
+By default the node writes:
+
+- domain id: `0`
+- topic: `height_map`
+- type: `core_dds::HeightMap`
+- sample: `data` with the current grid length
+- QoS: keep last depth `1`, best effort
+
+The sample length follows the configured grid size, so it is not hard-coded to
+`144`.
+
+## Command filter
+
+Call `~/command_filter` with `move_forward` and `move_right`. A response field is
+`false` when the latest height map contains an obstacle at least `0.25 m` above
+the configured robot floor in that movement corridor; otherwise it is `true`.
