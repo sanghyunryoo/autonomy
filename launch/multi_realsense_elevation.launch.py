@@ -238,11 +238,27 @@ def _make_slam_node(context, *args, **kwargs):
     ]
 
 
+def _make_ai_detection_node(context, *args, **kwargs):
+    return [
+        Node(
+            package="height_map_ros2",
+            executable="ai_detection_node",
+            name="ai_detection_node",
+            output="screen",
+            parameters=[
+                LaunchConfiguration("ai_config"),
+                {"use_sim_time": LaunchConfiguration("simulation")},
+            ],
+        )
+    ]
+
+
 def generate_launch_description():
     package_share = Path(get_package_share_directory("height_map_ros2"))
     default_elevation_config = package_share / "config" / "elevation_mapping.yaml"
     default_camera_mapping = package_share / "config" / "realsense_usb_mapping.yaml"
     default_slam_config = package_share / "config" / "autonomy.yaml"
+    default_ai_config = package_share / "config" / "autonomy.yaml"
     default_urdf = package_share / "urdf" / "f16.urdf"
 
     elevation_config_arg = DeclareLaunchArgument(
@@ -259,6 +275,11 @@ def generate_launch_description():
         "slam_config",
         default_value=str(default_slam_config),
         description="Path to the parameter file containing orbslam3_node settings.",
+    )
+    ai_config_arg = DeclareLaunchArgument(
+        "ai_config",
+        default_value=str(default_ai_config),
+        description="Path to the parameter file containing ai_detection_node settings.",
     )
     urdf_arg = DeclareLaunchArgument(
         "urdf_path",
@@ -286,6 +307,11 @@ def generate_launch_description():
         default_value="true",
         description="If true, start orbslam3_node together with the elevation stack.",
     )
+    enable_ai_arg = DeclareLaunchArgument(
+        "enable_ai",
+        default_value="true",
+        description="If true, start ai_detection_node for ADAS RGB object detection.",
+    )
 
     usb_mapper_node = OpaqueFunction(
         function=_make_usb_mapper_node,
@@ -298,19 +324,26 @@ def generate_launch_description():
         function=_make_slam_node,
         condition=IfCondition(LaunchConfiguration("enable_slam")),
     )
+    ai_detection_node = OpaqueFunction(
+        function=_make_ai_detection_node,
+        condition=IfCondition(LaunchConfiguration("enable_ai")),
+    )
 
     return LaunchDescription(
         [
             elevation_config_arg,
             camera_mapping_arg,
             slam_config_arg,
+            ai_config_arg,
             urdf_arg,
             simulation_arg,
             operation_mode_arg,
             enable_slam_arg,
+            enable_ai_arg,
             usb_mapper_node,
             merge_node,
             elevation_node,
+            ai_detection_node,
             slam_node,
         ]
     )

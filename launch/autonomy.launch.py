@@ -72,6 +72,8 @@ def generate_launch_description():
             "elevation_config": LaunchConfiguration("elevation_config"),
             "simulation": LaunchConfiguration("simulation"),
             "operation_mode": LaunchConfiguration("operation_mode"),
+            "slam_config": LaunchConfiguration("autonomy_config"),
+            "ai_config": LaunchConfiguration("autonomy_config"),
         }.items(),
     )
 
@@ -86,13 +88,6 @@ def generate_launch_description():
             OpaqueFunction(function=_make_autonomy_manager_node),
             Node(
                 package="height_map_ros2",
-                executable="ai_detection_node",
-                name="ai_detection_node",
-                output="screen",
-                parameters=common_params,
-            ),
-            Node(
-                package="height_map_ros2",
                 executable="rl_local_planner_node",
                 name="rl_local_planner_node",
                 output="screen",
@@ -102,13 +97,6 @@ def generate_launch_description():
                 package="height_map_ros2",
                 executable="global_planner_node",
                 name="global_planner_node",
-                output="screen",
-                parameters=common_params,
-            ),
-            Node(
-                package="height_map_ros2",
-                executable="orbslam3_node",
-                name="orbslam3_node",
                 output="screen",
                 parameters=common_params,
             ),

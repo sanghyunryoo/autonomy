@@ -10,6 +10,7 @@ include(ExternalProject)
 set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party" CACHE PATH "Third-party source root")
 set(ORB_SLAM3_ROOT "${THIRD_PARTY_DIR}/orb_slam3" CACHE PATH "ORB-SLAM3 source/build root")
 set(PANGOLIN_ROOT "${THIRD_PARTY_DIR}/pangolin" CACHE PATH "Pangolin source root")
+set(ONNXRUNTIME_ROOT "${THIRD_PARTY_DIR}/onnxruntime" CACHE PATH "ONNX Runtime binary distribution root")
 set(THIRD_PARTY_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/third_party_build")
 set(THIRD_PARTY_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/third_party_install")
 set(PANGOLIN_INSTALL_DIR "${THIRD_PARTY_INSTALL_DIR}/pangolin")
@@ -21,6 +22,14 @@ endif()
 
 if(NOT EXISTS "${PANGOLIN_ROOT}/CMakeLists.txt")
   message(FATAL_ERROR "Pangolin source not found at ${PANGOLIN_ROOT}")
+endif()
+
+if(NOT EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
+  message(FATAL_ERROR "ONNX Runtime headers not found at ${ONNXRUNTIME_ROOT}/include")
+endif()
+
+if(NOT EXISTS "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so")
+  message(FATAL_ERROR "ONNX Runtime library not found at ${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so")
 endif()
 
 find_package(ament_cmake REQUIRED)
@@ -146,9 +155,18 @@ target_link_libraries(rl_local_planner_node "${cpp_typesupport_target}")
 add_executable(ai_detection_node
   src/ai_detection_node.cpp
 )
-target_include_directories(ai_detection_node PRIVATE include)
-ament_target_dependencies(ai_detection_node rclcpp sensor_msgs std_msgs)
-target_link_libraries(ai_detection_node "${cpp_typesupport_target}")
+target_include_directories(ai_detection_node PRIVATE include ${ONNXRUNTIME_ROOT}/include)
+ament_target_dependencies(ai_detection_node cv_bridge rclcpp sensor_msgs std_msgs)
+target_link_libraries(
+  ai_detection_node
+  "${cpp_typesupport_target}"
+  ${OpenCV_LIBS}
+  ${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so
+)
+set_target_properties(ai_detection_node PROPERTIES
+  BUILD_RPATH "${ONNXRUNTIME_ROOT}/lib"
+  INSTALL_RPATH "${ONNXRUNTIME_ROOT}/lib"
+)
 
 add_executable(orbslam3_node
   src/orbslam3_node.cpp
@@ -233,6 +251,10 @@ install(DIRECTORY config launch
 )
 
 install(DIRECTORY docs
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY weights
   DESTINATION share/${PROJECT_NAME}
 )
 
