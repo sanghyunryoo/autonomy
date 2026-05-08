@@ -1178,7 +1178,7 @@ def main():
     print("")
     print("  height_scanner = RayCasterFOVCfg(")
     print('      prim_path="{ENV_REGEX_NS}/Robot/base_link",')
-    print("      offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
+    print("      offset=RayCasterFOVCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
     print('      ray_alignment="yaw",')
     print(
         "      pattern_cfg=patterns.GridPatternCfg("
@@ -1195,7 +1195,7 @@ def main():
         print("  # Add separately in adas/fsd modes to match local_terrain_map.grid:")
         print("  local_height_map = RayCasterFOVCfg(")
         print('      prim_path="{ENV_REGEX_NS}/Robot/base_link",')
-        print("      offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
+        print("      offset=RayCasterFOVCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
         print('      ray_alignment="yaw",')
         print(
             "      pattern_cfg=patterns.GridPatternCfg("
