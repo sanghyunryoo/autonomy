@@ -153,6 +153,11 @@ void ElevationMappingNode::createIo()
     output_cloud_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   masked_height_scan_pub_ = create_publisher<height_map_ros2::msg::MaskedHeightScan>(
     output_masked_height_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
+  heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
+    "/autonomy/heartbeat/elevation_mapping_node", 10);
+  heartbeat_timer_ = create_wall_timer(
+    std::chrono::milliseconds(500),
+    [this]() { publishHeartbeat(); });
   if (local_terrain_map_enabled_) {
     local_terrain_image_pub_ = create_publisher<sensor_msgs::msg::Image>(
       output_local_terrain_image_topic_, 10);
@@ -210,6 +215,13 @@ void ElevationMappingNode::createIo()
       dds_height_map_topic_.c_str(),
       dds_height_map_type_.c_str());
   }
+}
+
+void ElevationMappingNode::publishHeartbeat()
+{
+  std_msgs::msg::String msg;
+  msg.data = has_latest_height_map_ ? "ready" : "waiting_for_cloud";
+  heartbeat_pub_->publish(msg);
 }
 
 void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)

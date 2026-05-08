@@ -1,0 +1,9 @@
+std_msgs/Header header
+string label
+float32 confidence
+uint32 bbox_x
+uint32 bbox_y
+uint32 bbox_width
+uint32 bbox_height
+geometry_msgs/Point position
+bool has_3d_position

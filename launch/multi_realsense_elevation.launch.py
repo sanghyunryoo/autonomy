@@ -3,7 +3,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.conditions import UnlessCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
@@ -94,7 +94,9 @@ def _load_merge_parameters(mapping_file, simulation, operation_mode):
         .copy()
     )
     target_frame = str(node_params.get("target_frame", "base_link"))
-    frame_prefix = _frame_prefix_from_target(target_frame)
+    frame_prefix = str(
+        node_params.pop("static_tf_frame_prefix", _frame_prefix_from_target(target_frame))
+    )
 
     camera_names = []
     cameras = {}
@@ -118,11 +120,16 @@ def _load_merge_parameters(mapping_file, simulation, operation_mode):
                 binding.get("optical_frame", ""),
                 frame_prefix,
             ),
+            "mount_to_optical_xyz": binding.get("mount_to_optical_xyz", [0.0, 0.0, 0.0]),
+            "mount_to_optical_rpy": binding.get(
+                "mount_to_optical_rpy",
+                [-1.5707963267948966, 0.0, -1.5707963267948966],
+            ),
         }
 
     node_params["camera_names"] = camera_names
     node_params["cameras"] = cameras
-    node_params.setdefault("static_tf_frame_prefix", frame_prefix)
+    node_params["static_tf_frame_prefix"] = frame_prefix
     return node_params
 
 
@@ -216,10 +223,26 @@ def _make_elevation_node(context, *args, **kwargs):
     ]
 
 
+def _make_slam_node(context, *args, **kwargs):
+    return [
+        Node(
+            package="height_map_ros2",
+            executable="orbslam3_node",
+            name="orbslam3_node",
+            output="screen",
+            parameters=[
+                LaunchConfiguration("slam_config"),
+                {"use_sim_time": LaunchConfiguration("simulation")},
+            ],
+        )
+    ]
+
+
 def generate_launch_description():
     package_share = Path(get_package_share_directory("height_map_ros2"))
     default_elevation_config = package_share / "config" / "elevation_mapping.yaml"
     default_camera_mapping = package_share / "config" / "realsense_usb_mapping.yaml"
+    default_slam_config = package_share / "config" / "autonomy.yaml"
     default_urdf = package_share / "urdf" / "f16.urdf"
 
     elevation_config_arg = DeclareLaunchArgument(
@@ -231,6 +254,11 @@ def generate_launch_description():
         "camera_mapping",
         default_value=str(default_camera_mapping),
         description="Path to the RealSense camera mapping and merge parameter file.",
+    )
+    slam_config_arg = DeclareLaunchArgument(
+        "slam_config",
+        default_value=str(default_slam_config),
+        description="Path to the parameter file containing orbslam3_node settings.",
     )
     urdf_arg = DeclareLaunchArgument(
         "urdf_path",
@@ -253,6 +281,11 @@ def generate_launch_description():
             "elevation_mapping_node.ros__parameters.operation_mode."
         ),
     )
+    enable_slam_arg = DeclareLaunchArgument(
+        "enable_slam",
+        default_value="true",
+        description="If true, start orbslam3_node together with the elevation stack.",
+    )
 
     usb_mapper_node = OpaqueFunction(
         function=_make_usb_mapper_node,
@@ -261,16 +294,23 @@ def generate_launch_description():
 
     merge_node = OpaqueFunction(function=_make_merge_node)
     elevation_node = OpaqueFunction(function=_make_elevation_node)
+    slam_node = OpaqueFunction(
+        function=_make_slam_node,
+        condition=IfCondition(LaunchConfiguration("enable_slam")),
+    )
 
     return LaunchDescription(
         [
             elevation_config_arg,
             camera_mapping_arg,
+            slam_config_arg,
             urdf_arg,
             simulation_arg,
             operation_mode_arg,
+            enable_slam_arg,
             usb_mapper_node,
             merge_node,
             elevation_node,
+            slam_node,
         ]
     )

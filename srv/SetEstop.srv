@@ -1,0 +1,14 @@
+bool active
+string reason
+---
+uint8 IDLE=0
+uint8 DRIVE=1
+uint8 ADAS=2
+uint8 FSD=3
+uint8 MAPPING=4
+uint8 ERROR=5
+uint8 ESTOP=6
+
+bool accepted
+uint8 current_mode
+string message

@@ -1,0 +1,62 @@
+autonomy_manager:
+  ros__parameters:
+    startup_mode: IDLE
+    heartbeat_timeout_sec: 1.0
+    publish_rate_hz: 10.0
+    managed_nodes:
+      idle: []
+      drive: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node]
+      adas: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, ai_detection_node]
+      fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, rl_local_planner_node, global_planner_node, orbslam3_node]
+      mapping: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, orbslam3_node]
+
+rl_local_planner_node:
+  ros__parameters:
+    enabled: true
+    model_path: ""
+    current_pose_topic: /localization/current_pose
+    target_pose_topic: /planning/target_pose
+    height_scan_topic: /elevation_mapping_node/local_terrain_map
+    cmd_vel_topic: /cmd_vel
+    publish_rate_hz: 20.0
+
+ai_detection_node:
+  ros__parameters:
+    enabled: true
+    model_path: ""
+    image_topic: /adas_camera/color/image_raw
+    camera_info_topic: /adas_camera/color/camera_info
+    depth_topic: /adas_camera/depth/image_rect_raw
+    annotated_image_topic: ~/annotated_image
+    detections_topic: ~/detections
+    confidence_threshold: 0.35
+
+orbslam3_node:
+  ros__parameters:
+    enabled: true
+    vocabulary_path: /root/ros2_ws/src/height_map_ros2/third_party/orb_slam3/Vocabulary/ORBvoc.txt
+    settings_path: /root/ros2_ws/src/height_map_ros2/config/orbslam3_stereo_imu_realsense.yaml
+    left_image_topic: /robot_4w4l/adas_camera/left/image_raw
+    right_image_topic: /robot_4w4l/adas_camera/right/image_raw
+    imu_topic: /robot_4w4l/imu
+    pose_topic: /localization/orbslam3_pose
+    pose2d_topic: /localization/current_pose
+    path_topic: /localization/orbslam3_path
+    max_path_poses: 2000
+    publish_tf: true
+    map_frame: 4w4l/map
+    odom_frame: 4w4l/odom
+    base_frame: 4w4l/base_link
+    world_frame: 4w4l/map
+    camera_frame: 4w4l/A_camera_link
+    use_viewer: false
+    sync_queue_size: 10
+    max_imu_buffer_sec: 2.0
+
+global_planner_node:
+  ros__parameters:
+    enabled: false
+    planner_type: placeholder
+    map_topic: /map
+    goal_topic: /goal_pose
+    path_topic: /planning/global_path

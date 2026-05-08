@@ -23,8 +23,10 @@ camera_bindings:
       camera_name: adas_camera
       depth_topic: /robot_4w4l/adas_camera/depth/image_rect_raw
       camera_info_topic: /robot_4w4l/adas_camera/depth/camera_info
-      mount_frame: A_camera_link
+      mount_frame: A_camera_mount_link
       optical_frame: A_camera_link
+      mount_to_optical_xyz: [0.0, 0.0, 0.0]
+      mount_to_optical_rpy: [-1.5707963267948966, 0.0, -1.5707963267948966]
 
     - role: front
       enabled: true
@@ -52,8 +54,10 @@ camera_bindings:
       camera_name: adas_camera
       depth_topic: /adas_camera/depth/image_rect_raw
       camera_info_topic: /adas_camera/depth/camera_info
-      mount_frame: A_camera_link
+      mount_frame: A_camera_mount_link
       optical_frame: A_camera_link
+      mount_to_optical_xyz: [0.0, 0.0, 0.0]
+      mount_to_optical_rpy: [-1.5707963267948966, 0.0, -1.5707963267948966]
 
     - role: front
       enabled: true
@@ -89,7 +93,7 @@ stream:
 pointcloud_merge_node:
   ros__parameters:
     target_frame: 4w4l/base_link
-    publish_static_tf: true
+    static_tf_frame_prefix: "4w4l/"
     publish_rate_hz: 20.0
     max_cloud_age_sec: 0.0
 

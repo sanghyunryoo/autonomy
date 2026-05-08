@@ -1,0 +1,43 @@
+{
+  "name": "osgearth",
+  "version": "3.8",
+  "description": "osgEarth - 3D Maps for OpenSceneGraph",
+  "homepage": "https://github.com/pelicanmapping/osgearth",
+  "license": "MIT",
+  "supports": "!(arm | x86 | wasm32 | android)",
+  "dependencies": [
+    {
+      "name": "aws-sdk-cpp",
+      "features": [
+        "s3"
+      ]
+    },
+    "blend2d",
+    "draco",
+    "gdal",
+    "geos",
+    "libwebp",
+    "meshoptimizer",
+    "opengl",
+    "osg",
+    "protobuf",
+    "spdlog",
+    "sqlite3",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "features": {
+    "controls": {
+      "description": "Support for the old Controls API (superceded by imgui)"
+    },
+    "tools": {
+      "description": "Build command-line tools"
+    }
+  }
+}

@@ -65,6 +65,7 @@ class RealSenseUsbMapper(Node):
         self._stream = self._config["stream"]
 
         self._binding_pub = self.create_publisher(String, "~/camera_bindings", 10)
+        self._heartbeat_pub = self.create_publisher(String, "/autonomy/heartbeat/realsense_usb_mapper", 10)
         self._depth_publishers = {}
         self._camera_info_publishers = {}
         self._pipelines = {}
@@ -77,6 +78,7 @@ class RealSenseUsbMapper(Node):
         period = 1.0 / max(1.0, float(self._stream["depth_fps"]))
         self._timer = self.create_timer(period, self._publish_depth_maps)
         self._status_timer = self.create_timer(1.0, self._publish_status)
+        self._heartbeat_timer = self.create_timer(0.5, self._publish_heartbeat)
         self._publish_status()
 
     def _load_config(self, mapping_file):
@@ -471,6 +473,11 @@ class RealSenseUsbMapper(Node):
         msg = String()
         msg.data = json.dumps(payload, sort_keys=True)
         self._binding_pub.publish(msg)
+
+    def _publish_heartbeat(self):
+        msg = String()
+        msg.data = "ready" if self._pipelines else "degraded:no_active_cameras"
+        self._heartbeat_pub.publish(msg)
 
 
 def main():

@@ -8,6 +8,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include "dds_height_map_publisher.hpp"
 #include "elevation_map_backend.hpp"
@@ -26,6 +27,7 @@ public:
 private:
   void loadParameters();
   void createIo();
+  void publishHeartbeat();
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void onCommandFilter(
     const std::shared_ptr<height_map_ros2::srv::CommandFilter::Request> request,
@@ -77,7 +79,9 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr local_terrain_image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr local_terrain_cloud_pub_;
   rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr local_terrain_scan_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::Service<height_map_ros2::srv::CommandFilter>::SharedPtr command_filter_srv_;
+  rclcpp::TimerBase::SharedPtr heartbeat_timer_;
   std::unique_ptr<ElevationMapBackend> elevation_backend_;
   std::unique_ptr<ElevationMapBackend> local_terrain_backend_;
   std::unique_ptr<DdsHeightMapPublisher> dds_height_map_pub_;

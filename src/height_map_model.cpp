@@ -28,7 +28,7 @@ HeightMapFrame gridToHeightMapFrame(
       frame.valid_mask[index] = 1;
     }
   }
-
+  
   return frame;
 }
 
