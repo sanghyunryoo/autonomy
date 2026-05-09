@@ -51,19 +51,25 @@ source install/setup.bash
 
 ## Run
 
-For simulation, publish depth images and camera info on the topics configured in
-`config/realsense_usb_mapping.yaml` under `camera_bindings.simulation`. This
-skips the hardware mapper and enables `use_sim_time` on the merge and
-elevation nodes. Only camera bindings with `enabled: true` are subscribed and
-merged:
+The autonomy stack is launched from a single launch file and a single parameter
+file, `config/autonomy.yaml`. On startup the stack stays in `IDLE`; change modes
+at runtime with `/autonomy_manager/set_mode`.
+
+Simulation:
 
 ```bash
-ros2 launch height_map_ros2 multi_realsense_elevation.launch.py simulation:=true
+ros2 launch height_map_ros2 autonomy.launch.py simulation:=true
 ```
 
-For hardware, keep USB port bindings and camera merge settings in
-`config/realsense_usb_mapping.yaml` under `camera_bindings.real`.
-First identify the board port ids:
+Hardware:
+
+```bash
+ros2 launch height_map_ros2 autonomy.launch.py simulation:=false
+```
+
+Keep USB port bindings, camera topic bindings, merge settings, elevation tuning,
+SLAM, AI, planner, and manager parameters in `config/autonomy.yaml`. For
+hardware, first identify the board port ids:
 
 ```bash
 sudo apt install python3-opencv python3-yaml
@@ -73,7 +79,7 @@ ros2 run height_map_ros2 show_realsense_usb_ports.py
 
 Each connected RealSense color image is displayed with its `usb_port_id`, serial,
 and model overlaid. Plug a camera into each board port, note the reported
-`usb_port_id`, then edit `config/realsense_usb_mapping.yaml`. After that, any
+`usb_port_id`, then edit `config/autonomy.yaml`. After that, any
 camera plugged into that physical port is mapped to the configured role while
 `enabled` still controls whether the role is used.
 
@@ -82,22 +88,18 @@ device serials, publishes per-camera depth images plus `CameraInfo` at the
 configured depth FPS, and publishes the resolved bindings as JSON on
 `~/camera_bindings`.
 
+Change mode at runtime:
+
 ```bash
-ros2 launch height_map_ros2 multi_realsense_elevation.launch.py simulation:=false
+ros2 service call /autonomy_manager/set_mode height_map_ros2/srv/SetAutonomyMode \
+"{operation_mode: 'ADAS', speed_limit: 0.8, enable_ai: true, reason: 'start adas'}"
 ```
 
-Select the camera/resource profile with `operation_mode:=drive`, `adas`, or
-`fsd`. `drive` starts only the configured drive camera roles. `adas` and `fsd`
-also require an enabled `role: adas` camera; launch or the hardware mapper will
-fail loudly if that role is missing. In `adas` and `fsd`, the elevation node also
-publishes `~/local_terrain_map`, `~/local_terrain_image`, and
-`~/local_terrain_points` using the wider `local_terrain_map.grid` bounds.
+Monitor the manager status:
 
-The elevation config stays hardware-independent. Edit
-`config/realsense_usb_mapping.yaml` for camera USB port roles, enabled flags, topic
-names, TF frame topology, and merge filter settings. Edit
-`config/elevation_mapping.yaml` for merged-cloud input/output, grid bounds, and
-elevation algorithm tuning.
+```bash
+ros2 topic echo /autonomy_manager/status
+```
 
 ## DDS output
 

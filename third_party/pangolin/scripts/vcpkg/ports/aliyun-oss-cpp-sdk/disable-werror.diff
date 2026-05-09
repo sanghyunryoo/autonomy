@@ -6,7 +6,7 @@ index ea0d8d6..c04ec99 100644
  	endif()
  endif()
  
-+list(REMOVE_ITEM SDK_COMPILER_FLAGS "-Werror")
++list(REMOVE_ITEM SDK_COMPILER_FLAGS "-Wno-error")
  
  if (BUILD_SHARED_LIBS)
  	set(STATIC_LIB_SUFFIX "-static")

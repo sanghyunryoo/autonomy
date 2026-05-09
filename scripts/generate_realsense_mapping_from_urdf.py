@@ -283,7 +283,7 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
 def parse_args() -> argparse.Namespace:
     root = package_root()
     parser = argparse.ArgumentParser(
-        description="Generate config/realsense_usb_mapping.yaml from URDF camera links."
+        description="Generate camera binding YAML from URDF camera links."
     )
     parser.add_argument(
         "--urdf",
@@ -294,7 +294,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=root / "config" / "realsense_usb_mapping.yaml",
+        default=root / "config" / "camera_bindings.generated.yaml",
         help="Output YAML path.",
     )
     parser.add_argument(

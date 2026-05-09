@@ -9,7 +9,7 @@ index 31d8116..f46cbc3 100644
 -    $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
 +    $<$<CXX_COMPILER_ID:MSVC>:/W4>
      $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:
--        -Wall -Wextra -Wpedantic -Werror
+-        -Wall -Wextra -Wpedantic -Wno-error
 +        -Wall -Wextra -Wpedantic
  
          # We're using the `long long` type intentionally. Although it's not part of C++98, in

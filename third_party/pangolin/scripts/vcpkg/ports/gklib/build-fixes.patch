@@ -38,8 +38,8 @@ index 249d424..94d9fd6 100644
 @@ -30,6 +31,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
  
  # GCC warnings.
-   set(GKlib_COPTIONS "${GKlib_COPTIONS} -Werror -Wall -pedantic -Wno-unused-function -Wno-unused-but-set-variable -Wno-unused-variable -Wno-unknown-pragmas -Wno-unused-label")
-+  string(REPLACE " -Werror " " " GKlib_COPTIONS "${GKlib_COPTIONS}")
+   set(GKlib_COPTIONS "${GKlib_COPTIONS} -Wno-error -Wall -pedantic -Wno-unused-function -Wno-unused-but-set-variable -Wno-unused-variable -Wno-unknown-pragmas -Wno-unused-label")
++  string(REPLACE " -Wno-error " " " GKlib_COPTIONS "${GKlib_COPTIONS}")
  endif()
  
  if(${CMAKE_C_COMPILER_ID} MATCHES "Sun")

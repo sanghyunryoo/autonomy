@@ -194,3 +194,14 @@ endif()
 if(BUILD_TOOLS)
     add_subdirectory(tools)
 endif()
+
+# HEIGHT_MAP_ROS2_PANGOLIN_WERROR_PATCH
+# Ubuntu 22.04 + OpenEXR/Imath compatibility:
+# prevent OpenEXR header warnings from becoming fatal errors.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options(
+    -Wno-error
+    -Wno-error=type-limits
+    -Wno-type-limits
+  )
+endif()

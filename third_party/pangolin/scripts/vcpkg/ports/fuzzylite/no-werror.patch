@@ -4,9 +4,9 @@ index 28435e2..3824c8f 100644
 +++ b/fuzzylite/CMakeLists.txt
 @@ -74,7 +74,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY bin)
  if(NOT MSVC)
- #TODO: Remove -Werror before release.
+ #TODO: Remove -Wno-error before release.
  #Add Unix compilation flags
--    set(CMAKE_CXX_FLAGS "-pedantic -Wall -Wextra -Werror ${CMAKE_CXX_FLAGS}")
+-    set(CMAKE_CXX_FLAGS "-pedantic -Wall -Wextra -Wno-error ${CMAKE_CXX_FLAGS}")
 +    set(CMAKE_CXX_FLAGS "-pedantic -Wall -Wextra ${CMAKE_CXX_FLAGS}")
  
      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")

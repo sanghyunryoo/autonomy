@@ -3,7 +3,7 @@ index c83dd83..2d1a7e6 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -82,9 +82,11 @@ if(HAVE_WERROR_FLAG)
-     option(ENABLE_WERROR "Enable -Werror in all Makefiles" OFF)
+     option(ENABLE_WERROR "Enable -Wno-error in all Makefiles" OFF)
  endif()
  
 +if(MSVC AND NOT WITH_ASM)

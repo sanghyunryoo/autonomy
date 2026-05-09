@@ -12,7 +12,14 @@ string mode_name
 bool autonomy_enabled
 bool estop_active
 bool error_active
+bool ai_enabled
+float32 speed_limit
+int32 error_code
+geometry_msgs/Pose pose
+geometry_msgs/Twist velocity
 string status
 string[] active_nodes
 string[] inactive_nodes
 string[] degraded_nodes
+string[] node_names
+string[] node_statuses

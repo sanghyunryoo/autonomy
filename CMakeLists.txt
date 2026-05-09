@@ -142,7 +142,7 @@ add_executable(autonomy_manager_node
   src/autonomy_manager_node.cpp
 )
 target_include_directories(autonomy_manager_node PRIVATE include)
-ament_target_dependencies(autonomy_manager_node rclcpp std_msgs)
+ament_target_dependencies(autonomy_manager_node geometry_msgs nav_msgs rclcpp std_msgs)
 target_link_libraries(autonomy_manager_node "${cpp_typesupport_target}")
 
 add_executable(rl_local_planner_node
@@ -255,6 +255,10 @@ install(DIRECTORY docs
 )
 
 install(DIRECTORY weights
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY map
   DESTINATION share/${PROJECT_NAME}
 )
 

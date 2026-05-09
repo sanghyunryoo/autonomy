@@ -6,8 +6,8 @@ index 09f1f9b..9ef62e9 100644
  
  set(CMAKE_CXX_STANDARD 14)
  
--add_compile_options(-Wall -Werror -pedantic -pedantic-errors -Wextra -Weffc++)
-+add_compile_options(-Wall -Werror -pedantic -pedantic-errors -Wextra)
+-add_compile_options(-Wall -Wno-error -pedantic -pedantic-errors -Wextra -Weffc++)
++add_compile_options(-Wall -Wno-error -pedantic -pedantic-errors -Wextra)
  
  # Set specific options depending on compiler
  if ( ${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang" )

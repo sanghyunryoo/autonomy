@@ -3,7 +3,7 @@ index 87cfb37..d7fbd20 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -693,7 +693,7 @@ endif()
- # Compile libraries here if you do not want -Werror or /WX on
+ # Compile libraries here if you do not want -Wno-error or /WX on
  #-----------------------------------------------------------------------------
  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 -add_subdirectory(third_party/boost/nowide)

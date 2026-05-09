@@ -12,7 +12,7 @@ index d04055c..ade5ce6 100644
          target_compile_options(libhat PRIVATE /W3 /WX)
      endif()
  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
--    target_compile_options(libhat PRIVATE -Wall -Wextra -Wconversion -Werror
+-    target_compile_options(libhat PRIVATE -Wall -Wextra -Wconversion -Wno-error
 +    target_compile_options(libhat PRIVATE -Wall -Wextra -Wconversion
              # temp fix for macOS CI failing due to incorrect LIBHAT_COMPILER_X86_OPTIONS value
              -Wno-unused-command-line-argument

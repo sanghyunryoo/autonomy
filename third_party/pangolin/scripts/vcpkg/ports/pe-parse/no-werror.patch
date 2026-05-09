@@ -6,7 +6,7 @@ index 395f1b5..bb10165 100644
      -pedantic -Wall -Wextra -Wcast-align -Wcast-qual -Wctor-dtor-privacy -Wdisabled-optimization
      -Wformat=2 -Winit-self -Wlong-long -Wmissing-declarations -Wmissing-include-dirs -Wcomment
      -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow -Wsign-conversion
--    -Wsign-promo -Wstrict-overflow=5 -Wswitch-default -Wundef -Werror -Wunused -Wuninitialized
+-    -Wsign-promo -Wstrict-overflow=5 -Wswitch-default -Wundef -Wno-error -Wunused -Wuninitialized
 +    -Wsign-promo -Wstrict-overflow=5 -Wswitch-default -Wundef -Wunused -Wuninitialized
      -Wno-missing-declarations -Wno-strict-overflow
    )
@@ -19,7 +19,7 @@ index fbad06a..02c8bcf 100644
      -pedantic -Wall -Wextra -Wcast-align -Wcast-qual -Wctor-dtor-privacy -Wdisabled-optimization
      -Wformat=2 -Winit-self -Wlong-long -Wmissing-declarations -Wmissing-include-dirs -Wcomment
      -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow -Wsign-conversion
--    -Wsign-promo -Wstrict-overflow=5 -Wswitch-default -Wundef -Werror -Wunused -Wuninitialized
+-    -Wsign-promo -Wstrict-overflow=5 -Wswitch-default -Wundef -Wno-error -Wunused -Wuninitialized
 +    -Wsign-promo -Wstrict-overflow=5 -Wswitch-default -Wundef -Wunused -Wuninitialized
      -Wno-missing-declarations
    )

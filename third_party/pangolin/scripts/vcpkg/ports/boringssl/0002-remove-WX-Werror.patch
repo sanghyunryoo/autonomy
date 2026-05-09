@@ -6,7 +6,7 @@ index 06ce07e..1b00154 100644
  if(CMAKE_COMPILER_IS_GNUCXX OR CLANG)
    # Note clang-cl is odd and sets both CLANG and MSVC. We base our configuration
    # primarily on our normal Clang one.
--  set(C_CXX_FLAGS "-fno-strict-aliasing -Werror -Wformat=2 -Wsign-compare -Wwrite-strings -Wvla -Wshadow -Wtype-limits -Wmissing-field-initializers")
+-  set(C_CXX_FLAGS "-fno-strict-aliasing -Wno-error -Wformat=2 -Wsign-compare -Wwrite-strings -Wvla -Wshadow -Wtype-limits -Wmissing-field-initializers")
 +  set(C_CXX_FLAGS "-fno-strict-aliasing -Wformat=2 -Wsign-compare -Wwrite-strings -Wvla -Wshadow -Wtype-limits -Wmissing-field-initializers")
    if(MSVC)
      # clang-cl sets different default warnings than clang. It also treats -Wall

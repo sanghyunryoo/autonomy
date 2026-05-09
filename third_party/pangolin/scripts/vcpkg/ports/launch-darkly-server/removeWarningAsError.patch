@@ -6,7 +6,7 @@ index 9acff7d..12904e6 100644
                  -pedantic
                  -Wall
                  -Wextra
--                -Werror
+-                -Wno-error
                  -Wstrict-prototypes
                  -Wmissing-prototypes
                  -Wmissing-declarations
@@ -18,7 +18,7 @@ index 15340f7..091e46d 100644
                  -pedantic
                  -Wall
                  -Wextra
--                -Werror
+-                -Wno-error
                  -Wstrict-prototypes
                  -Wmissing-prototypes
                  -Wmissing-declarations
@@ -26,7 +26,7 @@ index 15340f7..091e46d 100644
          PRIVATE -fno-omit-frame-pointer
                  -Wall
                  -Wextra
--                -Werror
+-                -Wno-error
                  -Wstrict-prototypes
                  -Wmissing-prototypes
                  -Wmissing-declarations

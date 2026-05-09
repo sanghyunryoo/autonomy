@@ -5,7 +5,7 @@ index ea0d8d6..2a853a0 100644
 @@ -119,7 +119,7 @@ else()
  	endif()
  	
- 	list(APPEND SDK_COMPILER_FLAGS "-Wall" "-Werror" "-pedantic" "-Wextra")
+ 	list(APPEND SDK_COMPILER_FLAGS "-Wall" "-Wno-error" "-pedantic" "-Wextra")
 -	
 +	list(APPEND SDK_COMPILER_FLAGS "-Wno-error=deprecated-declarations")
  	if (ENABLE_COVERAGE)

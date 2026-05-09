@@ -6,7 +6,7 @@ index de146d8..7657fa5 100644
  
  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC))
    set(EXTRA_COMPILE_OPTIONS
--      -Werror
+-      -Wno-error
        -Wall
        -Wpedantic
        -Wimplicit-fallthrough
@@ -18,7 +18,7 @@ index de146d8..7657fa5 100644
  
  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC))
    set(EXTRA_COMPILE_OPTIONS
--      -Werror
+-      -Wno-error
        -Wall
        -Wpedantic
        -Wimplicit-fallthrough

@@ -25,7 +25,7 @@ else ()
             "-DWEPOLL_EXPORT=__attribute__((visibility(\"default\")))"
     )
 
-    target_compile_options(wepoll PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
+    target_compile_options(wepoll PRIVATE -Wall -Wextra -Wno-error -fvisibility=hidden)
 endif ()
 
 target_link_libraries(wepoll PUBLIC ws2_32)

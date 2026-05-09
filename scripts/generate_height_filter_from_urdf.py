@@ -1051,7 +1051,7 @@ def parse_args():
 
     parser.add_argument(
         "--mapping-file",
-        default=str(root / "config" / "realsense_usb_mapping.yaml"),
+        default=str(root / "config" / "autonomy.yaml"),
         help="Camera binding YAML path.",
     )
     parser.add_argument(
@@ -1061,7 +1061,7 @@ def parse_args():
     )
     parser.add_argument(
         "--elevation-config",
-        default=str(root / "config" / "elevation_mapping.yaml"),
+        default=str(root / "config" / "autonomy.yaml"),
         help="Elevation mapping YAML path used to print a matching IsaacLab GridPatternCfg example.",
     )
     parser.add_argument(
@@ -1168,7 +1168,7 @@ def main():
     print("Use in IsaacLab config:")
     print(f"  from <your_package>.sensors.{module_name}_cfg import RayCasterFOVCfg")
     print("")
-    print("  # Matched to elevation_mapping.yaml height_map grid:")
+    print("  # Matched to autonomy.yaml height_map grid:")
     print(
         f"  #   ROS cells: width={height_map_grid.width}, height={height_map_grid.height}, "
         f"resolution={height_map_grid.resolution:g}"

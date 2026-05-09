@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 2.8.12)
 
 project(Wren LANGUAGES "C")
 
-set(wren_warning_flags "-Wall" "-Wextra" "-Werror" "-Wno-unused-parameter")     
+set(wren_warning_flags "-Wall" "-Wextra" "-Wno-error" "-Wno-unused-parameter")     
 
 IF (WIN32)
     ADD_DEFINITIONS (-D_CRT_SECURE_NO_WARNINGS )

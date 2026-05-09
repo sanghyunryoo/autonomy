@@ -7,7 +7,7 @@ index 452301c..947da3d 100644
  set_target_properties( ${EXE_NAME} PROPERTIES MINSIZEREL_POSTFIX     "${CMAKE_MINSIZEREL_POSTFIX}" )
  
 -target_compile_options( ${EXE_NAME} PRIVATE $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wall -Werror>
--                                            $<$<CXX_COMPILER_ID:GNU>:-Wall -Werror -fdiagnostics-show-option>
+-                                            $<$<CXX_COMPILER_ID:GNU>:-Wall -Wno-error -fdiagnostics-show-option>
 -                                            $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /wd4100 /wd4244 /wd4251 /wd4459 /wd4996>)
 +target_compile_options( ${EXE_NAME} PRIVATE $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wall>
 +                                            $<$<CXX_COMPILER_ID:GNU>:-Wall -fdiagnostics-show-option>
@@ -24,7 +24,7 @@ index 98e5bb4..f5ae8f1 100644
  set_target_properties( ${EXE_NAME} PROPERTIES MINSIZEREL_POSTFIX     "${CMAKE_MINSIZEREL_POSTFIX}" )
  
 -target_compile_options( ${EXE_NAME} PRIVATE $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wall -Werror>
--                                            $<$<CXX_COMPILER_ID:GNU>:-Wall -Werror -fdiagnostics-show-option>
+-                                            $<$<CXX_COMPILER_ID:GNU>:-Wall -Wno-error -fdiagnostics-show-option>
 -                                            $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /wd4244 /wd4251 /wd4996>)
 +target_compile_options( ${EXE_NAME} PRIVATE $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wall>
 +                                            $<$<CXX_COMPILER_ID:GNU>:-Wall -fdiagnostics-show-option>

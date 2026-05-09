@@ -7,9 +7,9 @@ index 76b5a62..174d981 100644
  endif()
  
 -if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
--    set(WARNINGS "-Werror" "-Wall")
+-    set(WARNINGS "-Wno-error" "-Wall")
 -elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
--    set(WARNINGS "-Werror" "-Wall")
+-    set(WARNINGS "-Wno-error" "-Wall")
 -elseif(MSVC)
 -    set(WARNINGS "/WX" "/W4")
 -endif()
