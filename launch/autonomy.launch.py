@@ -288,6 +288,23 @@ def _load_slam_topic_parameters(config_file, simulation):
     }
 
 
+def _load_slam_settings_parameters(config_file, simulation):
+    params = _load_node_parameters(config_file, "orbslam3_node")
+    binding_space = _binding_space_from_simulation(simulation)
+    settings_key = "settings_path_simulation" if binding_space == "simulation" else "settings_path_real"
+    settings_path = params.get(settings_key) or params.get("settings_path")
+    if settings_path:
+        return {"settings_path": str(settings_path)}
+    return {}
+
+
+def _load_orbslam_node_parameters(config_file):
+    params = _load_node_parameters(config_file, "orbslam3_node")
+    params.pop("settings_path_real", None)
+    params.pop("settings_path_simulation", None)
+    return params
+
+
 def _load_ai_topic_parameters(config_file, simulation):
     _data, binding_space, binding = _load_adas_binding_parameters(config_file, simulation)
     base = _camera_topic_base(binding, binding_space)
@@ -399,6 +416,7 @@ def _make_slam_node_action(context):
     config_file = LaunchConfiguration("autonomy_config").perform(context)
     simulation = LaunchConfiguration("simulation").perform(context)
     slam_topic_parameters = _load_slam_topic_parameters(config_file, simulation)
+    slam_settings_parameters = _load_slam_settings_parameters(config_file, simulation)
 
     return Node(
         package="height_map_ros2",
@@ -409,7 +427,8 @@ def _make_slam_node_action(context):
         sigterm_timeout=NODE_SHUTDOWN_TIMEOUT,
         sigkill_timeout=NODE_SHUTDOWN_TIMEOUT,
         parameters=[
-            _load_node_parameters(config_file, "orbslam3_node"),
+            _load_orbslam_node_parameters(config_file),
+            slam_settings_parameters,
             slam_topic_parameters,
             {"use_sim_time": LaunchConfiguration("simulation")},
         ],
