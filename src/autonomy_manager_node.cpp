@@ -94,6 +94,13 @@ bool validModeText(const std::string & text)
 
 struct NodeStatus
 {
+  NodeStatus()
+  : seen(false),
+    status("unknown"),
+    last_seen(0, 0u, RCL_SYSTEM_TIME)
+  {
+  }
+
   bool seen{false};
   std::string status{"unknown"};
   rclcpp::Time last_seen;
@@ -159,7 +166,7 @@ public:
     all_nodes.erase(std::unique(all_nodes.begin(), all_nodes.end()), all_nodes.end());
 
     for (const auto & node_name : all_nodes) {
-      node_status_[node_name] = NodeStatus{};
+      node_status_[node_name] = NodeStatus();
       heartbeat_subs_.push_back(create_subscription<std_msgs::msg::String>(
         "/autonomy/heartbeat/" + node_name,
         10,

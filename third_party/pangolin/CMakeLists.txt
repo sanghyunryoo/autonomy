@@ -97,6 +97,16 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
         add_compile_options(-Werror=maybe-uninitialized)
     endif()
     add_compile_options(-Werror=vla)
+
+    # HEIGHT_MAP_ROS2_PANGOLIN_WERROR_PATCH
+    # Ubuntu 22.04/aarch64 + OpenEXR/Imath compatibility:
+    # Pangolin enables -Werror globally, but system headers may emit
+    # architecture-dependent warnings such as -Wtype-limits.
+    add_compile_options(
+        -Wno-error
+        -Wno-error=type-limits
+        -Wno-type-limits
+    )
 endif()
 
 #######################################################
@@ -193,15 +203,4 @@ endif()
 
 if(BUILD_TOOLS)
     add_subdirectory(tools)
-endif()
-
-# HEIGHT_MAP_ROS2_PANGOLIN_WERROR_PATCH
-# Ubuntu 22.04 + OpenEXR/Imath compatibility:
-# prevent OpenEXR header warnings from becoming fatal errors.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  add_compile_options(
-    -Wno-error
-    -Wno-error=type-limits
-    -Wno-type-limits
-  )
 endif()

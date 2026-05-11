@@ -72,6 +72,7 @@ ExternalProject_Add(pangolin_external
     -DBUILD_EXAMPLES:BOOL=OFF
     -DBUILD_TESTS:BOOL=OFF
     -DBUILD_PANGOLIN_PYTHON:BOOL=OFF
+    -DBUILD_PANGOLIN_LIBOPENEXR:BOOL=OFF
 )
 
 ExternalProject_Add(dbow2_external
