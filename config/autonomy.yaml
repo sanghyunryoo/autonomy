@@ -255,9 +255,9 @@ orbslam3_node:
   ros__parameters:
     enabled: true
     vocabulary_path: /root/ros2_ws/src/height_map_ros2/third_party/orb_slam3/Vocabulary/ORBvoc.txt
-    settings_path: /root/ros2_ws/src/height_map_ros2/config/orbslam3_stereo_imu_realsense.yaml
-    settings_path_real: /root/ros2_ws/src/height_map_ros2/config/orbslam3_stereo_imu_realsense.yaml
-    settings_path_simulation: /root/ros2_ws/src/height_map_ros2/config/orbslam3_stereo_imu_realsense_sim.yaml
+    settings_config: /root/ros2_ws/src/height_map_ros2/config/orbslam3.yaml
+    settings_profile_real: real
+    settings_profile_simulation: simulation
     # Input topics and camera_frame are overridden by launch from camera_bindings in this file.
     left_image_topic: /robot_4w4l/adas_camera/left/image_raw
     right_image_topic: /robot_4w4l/adas_camera/right/image_raw
@@ -275,6 +275,9 @@ orbslam3_node:
     use_viewer: false
     sync_queue_size: 10
     max_imu_buffer_sec: 2.0
+    max_stereo_stamp_delta_ms: 5.0
+    respect_autonomy_mode: true
+    autonomy_status_topic: /autonomy_manager/status
 
 global_planner_node:
   ros__parameters:

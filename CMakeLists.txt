@@ -200,6 +200,7 @@ ament_target_dependencies(orbslam3_node
   tf2_ros
 )
 target_link_libraries(orbslam3_node
+  "${cpp_typesupport_target}"
   ${ORB_SLAM3_ROOT}/lib/libORB_SLAM3.so
   ${ORB_SLAM3_ROOT}/Thirdparty/DBoW2/lib/libDBoW2.so
   ${ORB_SLAM3_ROOT}/Thirdparty/g2o/lib/libg2o.so

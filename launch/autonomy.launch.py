@@ -55,6 +55,90 @@ def _sanitize_launch_parameters(value):
     return value
 
 
+def _format_opencv_yaml_scalar(value):
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return str(value)
+
+
+def _is_opencv_matrix(value):
+    return (
+        isinstance(value, dict)
+        and {"rows", "cols", "dt", "data"}.issubset(value.keys())
+        and isinstance(value.get("data"), list)
+    )
+
+
+def _write_orbslam_settings_file(settings_config, profile_name, profile):
+    settings = profile.get("settings", {})
+    if not isinstance(settings, dict):
+        raise RuntimeError(
+            f"orbslam3 profile '{profile_name}' must contain a settings dictionary"
+        )
+
+    output_path = Path("/tmp") / f"height_map_ros2_orbslam3_{profile_name}.yaml"
+    lines = [
+        "%YAML:1.0",
+        "",
+        f"# Generated from {settings_config} profile '{profile_name}'.",
+        "# Edit the source config, not this file.",
+        "",
+    ]
+
+    for key, value in settings.items():
+        if _is_opencv_matrix(value):
+            data = ", ".join(_format_opencv_yaml_scalar(item) for item in value["data"])
+            lines.extend(
+                [
+                    f"{key}: !!opencv-matrix",
+                    f"  rows: {int(value['rows'])}",
+                    f"  cols: {int(value['cols'])}",
+                    f"  dt: {value['dt']}",
+                    f"  data: [{data}]",
+                    "",
+                ]
+            )
+        else:
+            lines.append(f"{key}: {_format_opencv_yaml_scalar(value)}")
+
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(output_path)
+
+
+def _load_orbslam_profile_parameters(config_file, simulation):
+    params = _load_node_parameters(config_file, "orbslam3_node")
+    settings_config = str(
+        params.get("settings_config") or Path(config_file).with_name("orbslam3.yaml")
+    )
+    data = _load_config(settings_config)
+    profiles = data.get("profiles", {})
+    if not isinstance(profiles, dict):
+        raise RuntimeError(f"{settings_config} must define a 'profiles' dictionary")
+
+    binding_space = _binding_space_from_simulation(simulation)
+    profile_key = (
+        "settings_profile_simulation" if binding_space == "simulation"
+        else "settings_profile_real"
+    )
+    profile_name = str(params.get(profile_key) or binding_space)
+    profile = profiles.get(profile_name)
+    if not isinstance(profile, dict):
+        valid = ", ".join(sorted(str(key) for key in profiles.keys()))
+        raise RuntimeError(
+            f"ORB-SLAM3 profile '{profile_name}' not found in {settings_config}. "
+            f"Valid profiles: {valid}"
+        )
+
+    sensor_type = str(profile.get("sensor_type", params.get("sensor_type", "stereo_inertial")))
+    return {
+        "settings_path": _write_orbslam_settings_file(settings_config, profile_name, profile),
+        "sensor_type": sensor_type,
+    }
+
+
 def _binding_space_from_simulation(simulation):
     return "simulation" if _parse_bool(simulation, default=False) else "real"
 
@@ -289,19 +373,17 @@ def _load_slam_topic_parameters(config_file, simulation):
 
 
 def _load_slam_settings_parameters(config_file, simulation):
-    params = _load_node_parameters(config_file, "orbslam3_node")
-    binding_space = _binding_space_from_simulation(simulation)
-    settings_key = "settings_path_simulation" if binding_space == "simulation" else "settings_path_real"
-    settings_path = params.get(settings_key) or params.get("settings_path")
-    if settings_path:
-        return {"settings_path": str(settings_path)}
-    return {}
+    return _load_orbslam_profile_parameters(config_file, simulation)
 
 
 def _load_orbslam_node_parameters(config_file):
     params = _load_node_parameters(config_file, "orbslam3_node")
+    params.pop("settings_config", None)
+    params.pop("settings_profile_real", None)
+    params.pop("settings_profile_simulation", None)
     params.pop("settings_path_real", None)
     params.pop("settings_path_simulation", None)
+    params.pop("settings_path", None)
     return params
 
 

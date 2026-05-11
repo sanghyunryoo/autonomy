@@ -90,6 +90,8 @@ class ElevationGridExample:
     height: int
     isaac_size_x: float
     isaac_size_y: float
+    isaac_offset_x: float
+    isaac_offset_y: float
 
 
 def package_root() -> Path:
@@ -383,7 +385,9 @@ def make_elevation_grid_example(name: str, grid: dict, elevation_config: Path) -
 
     # ROS ElevationGrid uses ceil((max - min) / resolution) cells.
     # IsaacLab GridPatternCfg produces round(size / resolution) + 1 rays.
-    # Matching counts therefore requires size = (ros_cell_count - 1) * resolution.
+    # Matching cell centers therefore requires:
+    #   size = (ros_cell_count - 1) * resolution
+    #   offset = midpoint of [min, max]
     width = int(math.ceil((x_max - x_min) / resolution))
     height = int(math.ceil((y_max - y_min) / resolution))
 
@@ -398,6 +402,8 @@ def make_elevation_grid_example(name: str, grid: dict, elevation_config: Path) -
         height=height,
         isaac_size_x=(width - 1) * resolution,
         isaac_size_y=(height - 1) * resolution,
+        isaac_offset_x=0.5 * (x_min + x_max),
+        isaac_offset_y=0.5 * (y_min + y_max),
     )
 
 
@@ -871,6 +877,7 @@ def grid_pattern_literal(grid: ElevationGridExample) -> str:
         "{"
         f'"resolution": {grid.resolution:g}, '
         f'"size": ({grid.isaac_size_x:g}, {grid.isaac_size_y:g}), '
+        f'"offset": ({grid.isaac_offset_x:g}, {grid.isaac_offset_y:g}), '
         f'"ros_width": {grid.width}, '
         f'"ros_height": {grid.height}'
         "}"
@@ -1178,7 +1185,11 @@ def main():
     print("")
     print("  height_scanner = RayCasterFOVCfg(")
     print('      prim_path="{ENV_REGEX_NS}/Robot/base_link",')
-    print("      offset=RayCasterFOVCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
+    print(
+        "      offset=RayCasterFOVCfg.OffsetCfg("
+        f"pos=({height_map_grid.isaac_offset_x:g}, {height_map_grid.isaac_offset_y:g}, 20.0)"
+        "),"
+    )
     print('      ray_alignment="yaw",')
     print(
         "      pattern_cfg=patterns.GridPatternCfg("
@@ -1195,7 +1206,11 @@ def main():
         print("  # Add separately in adas/fsd modes to match local_terrain_map.grid:")
         print("  local_height_map = RayCasterFOVCfg(")
         print('      prim_path="{ENV_REGEX_NS}/Robot/base_link",')
-        print("      offset=RayCasterFOVCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),")
+        print(
+            "      offset=RayCasterFOVCfg.OffsetCfg("
+            f"pos=({local_height_map_grid.isaac_offset_x:g}, {local_height_map_grid.isaac_offset_y:g}, 20.0)"
+            "),"
+        )
         print('      ray_alignment="yaw",')
         print(
             "      pattern_cfg=patterns.GridPatternCfg("

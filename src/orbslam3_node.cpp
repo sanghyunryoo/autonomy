@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <deque>
 #include <filesystem>
@@ -17,7 +18,6 @@
 #include <message_filters/synchronizer.h>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
-#include <opencv2/imgproc.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -29,6 +29,8 @@
 
 #include <System.h>
 
+#include "height_map_ros2/msg/autonomy_state.hpp"
+
 namespace height_map_ros2
 {
 
@@ -38,6 +40,16 @@ namespace
 double stampToSec(const builtin_interfaces::msg::Time & stamp)
 {
   return static_cast<double>(stamp.sec) + static_cast<double>(stamp.nanosec) * 1e-9;
+}
+
+std::string lower(std::string text)
+{
+  std::transform(
+    text.begin(),
+    text.end(),
+    text.begin(),
+    [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+  return text;
 }
 
 double yawFromRotation(const Eigen::Matrix3f & rotation)
@@ -91,6 +103,7 @@ public:
       "vocabulary_path",
       "/root/ros2_ws/src/height_map_ros2/third_party/orb_slam3/Vocabulary/ORBvoc.txt");
     declare_parameter<std::string>("settings_path", "");
+    declare_parameter<std::string>("sensor_type", "stereo_inertial");
     declare_parameter<std::string>("left_image_topic", "/stereo/left/image_rect");
     declare_parameter<std::string>("right_image_topic", "/stereo/right/image_rect");
     declare_parameter<std::string>("imu_topic", "/imu/data");
@@ -107,8 +120,13 @@ public:
     declare_parameter<bool>("use_viewer", false);
     declare_parameter<int>("sync_queue_size", 10);
     declare_parameter<double>("max_imu_buffer_sec", 2.0);
+    declare_parameter<double>("max_stereo_stamp_delta_ms", 5.0);
+    declare_parameter<bool>("respect_autonomy_mode", false);
+    declare_parameter<std::string>("autonomy_status_topic", "/autonomy_manager/status");
 
     enabled_ = get_parameter("enabled").as_bool();
+    respect_autonomy_mode_ = get_parameter("respect_autonomy_mode").as_bool();
+    mode_active_ = !respect_autonomy_mode_;
     publish_tf_ = get_parameter("publish_tf").as_bool();
     map_frame_ = get_parameter("map_frame").as_string();
     odom_frame_ = get_parameter("odom_frame").as_string();
@@ -116,6 +134,8 @@ public:
     world_frame_ = get_parameter("world_frame").as_string();
     camera_frame_ = get_parameter("camera_frame").as_string();
     max_imu_buffer_sec_ = get_parameter("max_imu_buffer_sec").as_double();
+    max_stereo_stamp_delta_sec_ =
+      std::max(0.0, get_parameter("max_stereo_stamp_delta_ms").as_double()) * 1e-3;
     max_path_poses_ = std::max<int>(1, static_cast<int>(get_parameter("max_path_poses").as_int()));
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
@@ -134,6 +154,20 @@ public:
     path_pub_ =
       create_publisher<nav_msgs::msg::Path>(get_parameter("path_topic").as_string(), 10);
     heartbeat_pub_ = create_publisher<std_msgs::msg::String>("/autonomy/heartbeat/orbslam3_node", 10);
+    if (respect_autonomy_mode_) {
+      autonomy_status_sub_ = create_subscription<height_map_ros2::msg::AutonomyState>(
+        get_parameter("autonomy_status_topic").as_string(),
+        10,
+        [this](height_map_ros2::msg::AutonomyState::SharedPtr msg) {
+          mode_active_ =
+            msg->mode == height_map_ros2::msg::AutonomyState::ADAS ||
+            msg->mode == height_map_ros2::msg::AutonomyState::FSD ||
+            msg->mode == height_map_ros2::msg::AutonomyState::MAPPING;
+          if (!mode_active_) {
+            status_ = "standby";
+          }
+        });
+    }
 
     if (enabled_ && startSlam()) {
       setupSubscriptions();
@@ -159,6 +193,29 @@ private:
     const auto vocabulary_path = get_parameter("vocabulary_path").as_string();
     const auto settings_path = get_parameter("settings_path").as_string();
     const auto use_viewer = get_parameter("use_viewer").as_bool();
+    sensor_type_ = lower(get_parameter("sensor_type").as_string());
+    std::replace(sensor_type_.begin(), sensor_type_.end(), '-', '_');
+
+    ORB_SLAM3::System::eSensor sensor = ORB_SLAM3::System::IMU_STEREO;
+    if (sensor_type_ == "stereo") {
+      sensor = ORB_SLAM3::System::STEREO;
+      use_imu_ = false;
+    } else if (
+      sensor_type_ == "stereo_inertial" ||
+      sensor_type_ == "stereo_imu" ||
+      sensor_type_ == "imu_stereo") {
+      sensor = ORB_SLAM3::System::IMU_STEREO;
+      use_imu_ = true;
+      sensor_type_ = "stereo_inertial";
+    } else {
+      status_ = "error: unsupported sensor_type";
+      RCLCPP_ERROR(
+        get_logger(),
+        "%s '%s'. Use 'stereo' or 'stereo_inertial'.",
+        status_.c_str(),
+        sensor_type_.c_str());
+      return false;
+    }
 
     if (vocabulary_path.empty() || settings_path.empty()) {
       status_ = "error: missing vocabulary_path or settings_path";
@@ -180,7 +237,7 @@ private:
       slam_ = std::make_unique<ORB_SLAM3::System>(
         vocabulary_path,
         settings_path,
-        ORB_SLAM3::System::IMU_STEREO,
+        sensor,
         use_viewer);
     } catch (const std::exception & error) {
       status_ = std::string("error: failed to start ORB-SLAM3: ") + error.what();
@@ -199,10 +256,12 @@ private:
     const auto imu_topic = get_parameter("imu_topic").as_string();
     const int queue_size = std::max<int>(1, static_cast<int>(get_parameter("sync_queue_size").as_int()));
 
-    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-      imu_topic,
-      rclcpp::SensorDataQoS(),
-      [this](sensor_msgs::msg::Imu::SharedPtr msg) { onImu(std::move(msg)); });
+    if (use_imu_) {
+      imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+        imu_topic,
+        rclcpp::SensorDataQoS(),
+        [this](sensor_msgs::msg::Imu::SharedPtr msg) { onImu(std::move(msg)); });
+    }
 
     left_sub_.subscribe(this, left_topic, rmw_qos_profile_sensor_data);
     right_sub_.subscribe(this, right_topic, rmw_qos_profile_sensor_data);
@@ -210,12 +269,6 @@ private:
     sync_->registerCallback(
       std::bind(&Orbslam3Node::onStereo, this, std::placeholders::_1, std::placeholders::_2));
 
-    RCLCPP_INFO(
-      get_logger(),
-      "ORB-SLAM3 stereo-IMU subscriptions: left=%s right=%s imu=%s",
-      left_topic.c_str(),
-      right_topic.c_str(),
-      imu_topic.c_str());
   }
 
   void onImu(sensor_msgs::msg::Imu::SharedPtr msg)
@@ -239,7 +292,7 @@ private:
 
   void onStereo(const Image::ConstSharedPtr & left_msg, const Image::ConstSharedPtr & right_msg)
   {
-    if (!slam_) {
+    if (!slam_ || !mode_active_) {
       return;
     }
 
@@ -249,19 +302,32 @@ private:
       left_bridge = cv_bridge::toCvShare(left_msg);
       right_bridge = cv_bridge::toCvShare(right_msg);
     } catch (const cv_bridge::Exception & error) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "cv_bridge failed: %s", error.what());
+      status_ = "error: cv_bridge failed";
       return;
     }
 
     const double image_stamp = stampToSec(left_msg->header.stamp);
-    auto imu_measurements = takeImuUntil(image_stamp);
+    const double right_stamp = stampToSec(right_msg->header.stamp);
+    const double stereo_stamp_delta = std::abs(image_stamp - right_stamp);
+    if (stereo_stamp_delta > max_stereo_stamp_delta_sec_) {
+      status_ = "dropped:stereo_stamp_delta";
+      return;
+    }
 
     Sophus::SE3f t_cw;
     try {
-      t_cw = slam_->TrackStereo(left_bridge->image, right_bridge->image, image_stamp, imu_measurements);
+      if (use_imu_) {
+        auto imu_measurements = takeImuUntil(image_stamp);
+        t_cw = slam_->TrackStereo(
+          left_bridge->image,
+          right_bridge->image,
+          image_stamp,
+          imu_measurements);
+      } else {
+        t_cw = slam_->TrackStereo(left_bridge->image, right_bridge->image, image_stamp);
+      }
     } catch (const std::exception & error) {
       status_ = std::string("error: tracking failed: ") + error.what();
-      RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000, "%s", status_.c_str());
       return;
     }
 
@@ -377,14 +443,6 @@ private:
       const Sophus::SE3f t_bc = transformToSophus(base_to_camera.transform);
       return t_wc * t_bc.inverse();
     } catch (const std::exception & error) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(),
-        *get_clock(),
-        2000,
-        "Cannot lookup %s -> %s, publishing camera pose as base pose: %s",
-        base_frame_.c_str(),
-        camera_frame_.c_str(),
-        error.what());
       return t_wc;
     }
   }
@@ -394,12 +452,6 @@ private:
     if (!has_initial_base_pose_) {
       initial_base_pose_inverse_ = t_wb.inverse();
       has_initial_base_pose_ = true;
-      RCLCPP_INFO(
-        get_logger(),
-        "Aligned %s/%s to initial %s pose",
-        map_frame_.c_str(),
-        odom_frame_.c_str(),
-        base_frame_.c_str());
     }
     return initial_base_pose_inverse_ * t_wb;
   }
@@ -432,11 +484,15 @@ private:
   }
 
   bool enabled_{true};
+  bool respect_autonomy_mode_{false};
+  bool mode_active_{true};
   bool publish_tf_{true};
+  bool use_imu_{true};
   bool has_initial_base_pose_{false};
   bool has_previous_pose_for_velocity_{false};
   int max_path_poses_{2000};
   double max_imu_buffer_sec_{2.0};
+  double max_stereo_stamp_delta_sec_{0.005};
   double previous_pose_stamp_{0.0};
   std::string status_{"disabled"};
   std::string map_frame_{"map"};
@@ -444,6 +500,7 @@ private:
   std::string base_frame_{"base_link"};
   std::string world_frame_{"map"};
   std::string camera_frame_{"orbslam3_camera"};
+  std::string sensor_type_{"stereo_inertial"};
   Sophus::SE3f initial_base_pose_inverse_;
   Sophus::SE3f previous_pose_for_velocity_;
   nav_msgs::msg::Path path_msg_;
@@ -460,6 +517,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Pose2D>::SharedPtr pose2d_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
+  rclcpp::Subscription<height_map_ros2::msg::AutonomyState>::SharedPtr autonomy_status_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
