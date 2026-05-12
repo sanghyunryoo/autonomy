@@ -206,77 +206,46 @@ def _ai_topic_params(data, space):
     }
 
 
-def _slam_topic_params(data, space):
-    binding = _adas_binding(data, space)
-    base = _camera_base_topic(binding, space)
-    imu_topic = str(binding.get("imu_topic", ""))
-    if not imu_topic:
-        raise RuntimeError(f"camera_bindings.{space}.adas must define imu_topic for orbslam3_node")
-
-    return {
-        "left_image_topic": _topic_from_binding(
-            binding, ("left_image_topic", "infra1_topic"), f"{base}/left/image_raw"
-        ),
-        "right_image_topic": _topic_from_binding(
-            binding, ("right_image_topic", "infra2_topic"), f"{base}/right/image_raw"
-        ),
-        "imu_topic": imu_topic,
-        "camera_frame": _merge_frame(binding.get("optical_frame", "A_camera_link"), _frame_prefix(data)),
-    }
-
-
 def _format_opencv_scalar(value):
     if isinstance(value, bool):
-        return "1" if value else "0"
+        return "true" if value else "false"
     if isinstance(value, str):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     return str(value)
 
 
-def _is_opencv_matrix(value):
-    return (
-        isinstance(value, dict)
-        and {"rows", "cols", "dt", "data"}.issubset(value.keys())
-        and isinstance(value.get("data"), list)
-    )
+def _format_opencv_value(value, indent=0):
+    pad = " " * indent
+    if isinstance(value, dict):
+        lines = []
+        for key, item in value.items():
+            if isinstance(item, (dict, list)):
+                lines.append(f"{pad}{key}:")
+                lines.extend(_format_opencv_value(item, indent + 2))
+            else:
+                lines.append(f"{pad}{key}: {_format_opencv_scalar(item)}")
+        return lines
+    if isinstance(value, list):
+        if value and all(isinstance(item, list) for item in value):
+            return [
+                f"{pad}- [{', '.join(_format_opencv_scalar(elem) for elem in row)}]"
+                for row in value
+            ]
+        return [f"{pad}[{', '.join(_format_opencv_scalar(item) for item in value)}]"]
+    return [f"{pad}{_format_opencv_scalar(value)}"]
 
 
-def _write_orbslam_settings(settings_config, profile_name, profile):
-    settings = profile.get("settings", {})
-    if not isinstance(settings, dict):
-        raise RuntimeError(f"orbslam3 profile '{profile_name}' must contain a settings dictionary")
-
-    output_path = Path("/tmp") / f"height_map_ros2_orbslam3_{profile_name}.yaml"
-    lines = [
-        "%YAML:1.0",
-        "",
-        f"# Generated from {settings_config} profile '{profile_name}'.",
-        "# Edit the source config, not this file.",
-        "",
-    ]
-
-    for key, value in settings.items():
-        if _is_opencv_matrix(value):
-            data = ", ".join(_format_opencv_scalar(item) for item in value["data"])
-            lines.extend([
-                f"{key}: !!opencv-matrix",
-                f"  rows: {int(value['rows'])}",
-                f"  cols: {int(value['cols'])}",
-                f"  dt: {value['dt']}",
-                f"  data: [{data}]",
-                "",
-            ])
-        else:
-            lines.append(f"{key}: {_format_opencv_scalar(value)}")
-
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return str(output_path)
+def _write_openvins_yaml(path, data):
+    lines = ["%YAML:1.0", ""]
+    lines.extend(_format_opencv_value(data))
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(path)
 
 
-def _orbslam_settings_params(config_file, data, space):
-    params = _node_params(data, "orbslam3_node")
-    settings_config = str(params.get("settings_config") or Path(config_file).with_name("orbslam3.yaml"))
+def _openvins_profile(config_file, data, space):
+    params = _node_params(data, "openvins_vio_node")
+    settings_config = str(params.get("settings_config") or Path(config_file).with_name("openvins.yaml"))
     profiles = _load_yaml(settings_config).get("profiles", {})
     if not isinstance(profiles, dict):
         raise RuntimeError(f"{settings_config} must define a 'profiles' dictionary")
@@ -286,26 +255,71 @@ def _orbslam_settings_params(config_file, data, space):
     profile = profiles.get(profile_name)
     if not isinstance(profile, dict):
         valid = ", ".join(sorted(str(key) for key in profiles.keys()))
-        raise RuntimeError(f"ORB-SLAM3 profile '{profile_name}' not found in {settings_config}. Valid profiles: {valid}")
+        raise RuntimeError(f"OpenVINS profile '{profile_name}' not found in {settings_config}. Valid profiles: {valid}")
+    return settings_config, profile_name, profile
 
+
+def _openvins_params(config_file, data, space):
+    settings_config, profile_name, profile = _openvins_profile(config_file, data, space)
+    binding = _adas_binding(data, space)
+    base = _camera_base_topic(binding, space)
+    imu_topic = str(binding.get("imu_topic", ""))
+    if not imu_topic:
+        raise RuntimeError(f"camera_bindings.{space}.adas must define imu_topic for openvins_vio_node")
+
+    output_dir = Path("/tmp") / f"height_map_ros2_openvins_{profile_name}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    estimator_path = output_dir / "estimator_config.yaml"
+    imu_path = output_dir / "kalibr_imu_chain.yaml"
+    imucam_path = output_dir / "kalibr_imucam_chain.yaml"
+
+    estimator = dict(profile.get("estimator", {}))
+    estimator.update({
+        "verbosity": profile.get("verbosity", "INFO"),
+        "use_stereo": profile.get("use_stereo", True),
+        "max_cameras": profile.get("max_cameras", 2),
+        "relative_config_imu": imu_path.name,
+        "relative_config_imucam": imucam_path.name,
+    })
+
+    imu = dict(profile.get("imu", {}))
+    imu.setdefault("T_i_b", [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ])
+    imu["rostopic"] = imu_topic
+    imu.setdefault("time_offset", 0.0)
+    imu.setdefault("model", "kalibr")
+    imu.setdefault("Tw", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    imu.setdefault("R_IMUtoGYRO", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    imu.setdefault("Ta", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    imu.setdefault("R_IMUtoACC", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    imu.setdefault("Tg", [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+
+    cameras = {}
+    for camera_name, camera_config in (profile.get("cameras", {}) or {}).items():
+        camera = dict(camera_config)
+        binding_key = str(camera.pop("binding_key", "left_image_topic"))
+        camera["rostopic"] = _topic_from_binding(
+            binding,
+            (binding_key,),
+            f"{base}/left/image_raw" if camera_name == "cam0" else f"{base}/right/image_raw",
+        )
+        cameras[camera_name] = camera
+
+    _write_openvins_yaml(estimator_path, estimator)
+    _write_openvins_yaml(imu_path, {"imu0": imu})
+    _write_openvins_yaml(imucam_path, cameras)
+
+    params = _node_params(data, "openvins_vio_node")
     return {
-        "settings_path": _write_orbslam_settings(settings_config, profile_name, profile),
-        "sensor_type": str(profile.get("sensor_type", params.get("sensor_type", "stereo_inertial"))),
+        "verbosity": str(params.get("verbosity", profile.get("verbosity", "INFO"))),
+        "config_path": str(estimator_path),
+        "use_stereo": bool(params.get("use_stereo", profile.get("use_stereo", True))),
+        "max_cameras": int(params.get("max_cameras", profile.get("max_cameras", 2))),
     }
-
-
-def _orbslam_node_params(data):
-    params = _node_params(data, "orbslam3_node")
-    for key in (
-        "settings_config",
-        "settings_profile_real",
-        "settings_profile_simulation",
-        "settings_path_real",
-        "settings_path_simulation",
-        "settings_path",
-    ):
-        params.pop(key, None)
-    return params
 
 
 def _managed_nodes(simulation):
@@ -315,14 +329,14 @@ def _managed_nodes(simulation):
 
     return {
         "managed_nodes.drive": base,
-        "managed_nodes.adas": base + ["orbslam3_node", "rl_local_planner_node"],
-        "managed_nodes.fsd": base + ["orbslam3_node", "rl_local_planner_node", "global_planner_node"],
+        "managed_nodes.adas": base + ["openvins_vio_node", "rl_local_planner_node"],
+        "managed_nodes.fsd": base + ["openvins_vio_node", "rl_local_planner_node", "global_planner_node"],
     }
 
 
-def _worker_node(executable, parameters, name=None, output="log"):
+def _worker_node(executable, parameters, name=None, output="log", package=PACKAGE_NAME):
     return Node(
-        package=PACKAGE_NAME,
+        package=package,
         executable=executable,
         name=name or executable,
         output=output,
@@ -363,13 +377,14 @@ def _make_stack(context, *args, **kwargs):
             [_node_params(data, "elevation_mapping_node"), use_sim_time, {"operation_mode": STACK_MODE}],
         ),
         _worker_node(
-            "orbslam3_node",
-            [
-                _orbslam_node_params(data),
-                _orbslam_settings_params(config_file, data, space),
-                _slam_topic_params(data, space),
-                use_sim_time,
-            ],
+            "run_subscribe_msckf",
+            [_openvins_params(config_file, data, space), use_sim_time],
+            name="openvins_vio_node",
+            package="ov_msckf",
+        ),
+        _worker_node(
+            "vio_pose_adapter_node",
+            [_node_params(data, "vio_pose_adapter_node"), use_sim_time],
         ),
         _worker_node(
             "rl_local_planner_node",

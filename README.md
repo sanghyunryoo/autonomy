@@ -101,6 +101,17 @@ Monitor the manager status:
 ros2 topic echo /autonomy_manager/status
 ```
 
+## Localization
+
+The autonomy launch uses OpenVINS `ov_msckf` for stereo-inertial VIO instead of
+building ORB-SLAM3 in this package. `build.sh` prepares `src/open_vins` when it
+is missing and builds `ov_msckf` together with `height_map_ros2`.
+
+OpenVINS publishes odometry on `/odomimu`. The local
+`vio_pose_adapter_node` republishes `/localization/current_pose` as
+`geometry_msgs/Pose2D` for the RL local planner and reports the
+`openvins_vio_node` heartbeat to the autonomy manager.
+
 ## DDS output
 
 The DDS-facing IDL is installed as `share/height_map_ros2/idl/HeightMap.idl`:

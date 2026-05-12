@@ -9,10 +9,6 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
 
-  <build_depend>eigen</build_depend>
-  <build_depend>libepoxy-dev</build_depend>
-  <build_depend>libgl1-mesa-dev</build_depend>
-
   <depend>geometry_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>fastcdr</depend>
@@ -30,6 +26,7 @@
   <exec_depend>rosidl_default_runtime</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>ov_msckf</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-opencv</exec_depend>

@@ -19,6 +19,9 @@ Environment:
   CMAKE_TOOLCHAIN_FILE   Optional CMake toolchain for cross compilation.
   BUILD_TYPE             CMake build type. Default: Release
   ONNXRUNTIME_VERSION    ONNX Runtime binary release. Default: 1.18.1
+  OPENVINS_REPO          OpenVINS git repository. Default: https://github.com/rpng/open_vins.git
+  OPENVINS_VERSION       OpenVINS git branch/tag/commit. Default: master
+  SKIP_OPENVINS_CLONE    Set to 1 when OpenVINS is already provided in the workspace.
 EOF
 }
 
@@ -111,16 +114,24 @@ ensure_onnxruntime() {
 }
 
 clean_third_party_build_artifacts() {
-  local orb_root="${script_dir}/third_party/orb_slam3"
-
   echo "Cleaning third-party source-tree build artifacts..."
-  rm -rf \
-    "${orb_root}/build" \
-    "${orb_root}/lib" \
-    "${orb_root}/Thirdparty/DBoW2/build" \
-    "${orb_root}/Thirdparty/DBoW2/lib" \
-    "${orb_root}/Thirdparty/g2o/build" \
-    "${orb_root}/Thirdparty/g2o/lib"
+  rm -rf "${workspace_dir}/src/open_vins/build"
+}
+
+ensure_openvins() {
+  local openvins_dir="${workspace_dir}/src/open_vins"
+  if [[ -f "${openvins_dir}/ov_msckf/package.xml" ]]; then
+    return
+  fi
+
+  if [[ "${SKIP_OPENVINS_CLONE:-0}" == "1" ]]; then
+    die "OpenVINS not found at ${openvins_dir}. Add it to the workspace or unset SKIP_OPENVINS_CLONE."
+  fi
+
+  local repo="${OPENVINS_REPO:-https://github.com/rpng/open_vins.git}"
+  local version="${OPENVINS_VERSION:-master}"
+  echo "Cloning OpenVINS ${version} into ${openvins_dir}..."
+  git clone --recursive --branch "${version}" "${repo}" "${openvins_dir}"
 }
 
 host_arch="$(uname -m)"
@@ -130,6 +141,7 @@ if [[ "${host_arch}" != "${target_arch}" && -z "${CMAKE_TOOLCHAIN_FILE:-}" ]]; t
 fi
 
 ensure_onnxruntime
+ensure_openvins
 
 if [[ "${clean}" == true ]]; then
   echo "Cleaning workspace build/install/log..."
@@ -164,6 +176,6 @@ echo "ONNX Runtime: ${ort_dir}"
 cd "${workspace_dir}"
 colcon build \
   --symlink-install \
-  --packages-select "${package_name}" \
+  --packages-up-to ov_msckf "${package_name}" \
   "${extra_colcon_args[@]}" \
   --cmake-args "${cmake_args[@]}"

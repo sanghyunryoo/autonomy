@@ -211,7 +211,7 @@ elevation_mapping_node:
 autonomy_manager:
   ros__parameters:
     startup_mode: IDLE
-    pose_topic: /localization/orbslam3_pose
+    pose_topic: /odomimu
     map_dir: /root/ros2_ws/src/height_map_ros2/map
     speed_limit: 0.0
     enable_ai: false
@@ -220,8 +220,8 @@ autonomy_manager:
     managed_nodes:
       idle: []
       drive: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node]
-      adas: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, orbslam3_node, rl_local_planner_node]
-      fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, orbslam3_node, rl_local_planner_node, global_planner_node]
+      adas: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node]
+      fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node, global_planner_node]
       mapping: []
 
 rl_local_planner_node:
@@ -251,33 +251,24 @@ ai_detection_node:
     depth_sample_radius: 3
     log_inference: true
 
-orbslam3_node:
+openvins_vio_node:
   ros__parameters:
     enabled: true
-    vocabulary_path: /root/ros2_ws/src/height_map_ros2/third_party/orb_slam3/Vocabulary/ORBvoc.txt
-    settings_config: /root/ros2_ws/src/height_map_ros2/config/orbslam3.yaml
+    settings_config: /root/ros2_ws/src/height_map_ros2/config/openvins.yaml
     settings_profile_real: real
     settings_profile_simulation: simulation
-    # Input topics and camera_frame are overridden by launch from camera_bindings in this file.
-    left_image_topic: /robot_4w4l/adas_camera/left/image_raw
-    right_image_topic: /robot_4w4l/adas_camera/right/image_raw
-    imu_topic: /robot_4w4l/imu
-    pose_topic: /localization/orbslam3_pose
+    verbosity: INFO
+    use_stereo: true
+    max_cameras: 2
+    odom_topic: /odomimu
     pose2d_topic: /localization/current_pose
-    path_topic: /localization/orbslam3_path
-    max_path_poses: 2000
-    publish_tf: true
-    map_frame: 4w4l/map
-    odom_frame: 4w4l/odom
-    base_frame: 4w4l/base_link
-    world_frame: 4w4l/map
-    camera_frame: 4w4l/A_camera_link
-    use_viewer: false
-    sync_queue_size: 10
-    max_imu_buffer_sec: 2.0
-    max_stereo_stamp_delta_ms: 5.0
-    respect_autonomy_mode: true
-    autonomy_status_topic: /autonomy_manager/status
+
+vio_pose_adapter_node:
+  ros__parameters:
+    odom_topic: /odomimu
+    pose2d_topic: /localization/current_pose
+    heartbeat_name: openvins_vio_node
+    publish_rate_hz: 10.0
 
 global_planner_node:
   ros__parameters:
