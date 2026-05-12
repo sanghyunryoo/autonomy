@@ -156,6 +156,7 @@ set -u
 cmake_args=(
   -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
   -DONNXRUNTIME_ROOT="${ort_dir}"
+  -DENABLE_ARUCO_TAGS=OFF
 )
 
 if [[ -n "${PYTHON_EXECUTABLE:-}" ]]; then
