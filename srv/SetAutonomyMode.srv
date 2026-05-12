@@ -13,4 +13,4 @@ bool estop
 ---
 bool accepted
 uint8 current_mode
-string message
+string message      

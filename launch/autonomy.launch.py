@@ -79,6 +79,16 @@ def _find_camera_binding(data, space, role):
     raise RuntimeError(f"camera_bindings.{space} has no '{role}' camera binding")
 
 
+def _enabled_camera_binding(data, space, role):
+    for binding in _camera_bindings(data, space):
+        if not isinstance(binding, dict):
+            continue
+        if str(binding.get("role", "")).strip().lower() != role:
+            continue
+        return binding if _parse_bool(binding.get("enabled", True), default=True) else None
+    return None
+
+
 def _operation_modes(data):
     return data.get("operation_modes") or {
         "drive": {"camera_roles": ["front", "rear"], "require_roles": []},
@@ -163,7 +173,11 @@ def _merge_params(data, space):
 
     camera_names = []
     cameras = {}
-    for binding in _bindings_for_mode(data, space, STACK_MODE):
+    for binding in _camera_bindings(data, space):
+        if not isinstance(binding, dict):
+            continue
+        if not _parse_bool(binding.get("enabled", True), default=True):
+            continue
         role = str(binding["role"])
         camera_names.append(role)
         cameras[role] = {
@@ -187,6 +201,10 @@ def _merge_params(data, space):
 
 def _adas_binding(data, space):
     return _find_camera_binding(data, space, "adas")
+
+
+def _adas_enabled(data, space):
+    return _enabled_camera_binding(data, space, "adas") is not None
 
 
 def _ai_topic_params(data, space):
@@ -323,15 +341,16 @@ def _openvins_params(config_file, data, space):
     }
 
 
-def _managed_nodes(simulation):
+def _managed_nodes(simulation, enable_vio):
     base = ["pointcloud_merge_node", "elevation_mapping_node"]
     if not simulation:
         base = ["realsense_usb_mapper"] + base
+    adas_stack = base + (["openvins_vio_node", "rl_local_planner_node"] if enable_vio else [])
 
     return {
         "managed_nodes.drive": base,
-        "managed_nodes.adas": base + ["openvins_vio_node", "rl_local_planner_node"],
-        "managed_nodes.fsd": base + ["openvins_vio_node", "rl_local_planner_node", "global_planner_node"],
+        "managed_nodes.adas": adas_stack,
+        "managed_nodes.fsd": adas_stack + (["global_planner_node"] if enable_vio else []),
     }
 
 
@@ -356,6 +375,7 @@ def _make_stack(context, *args, **kwargs):
     data = _load_yaml(config_file)
     space = _binding_space(simulation_text)
     use_sim_time = {"use_sim_time": LaunchConfiguration("simulation")}
+    enable_adas_stack = _adas_enabled(data, space)
 
     actions = [
         LogInfo(msg="Autonomy stack starting in IDLE. Use /autonomy_manager/set_mode to change modes."),
@@ -377,28 +397,37 @@ def _make_stack(context, *args, **kwargs):
             "elevation_mapping_node",
             [_node_params(data, "elevation_mapping_node"), use_sim_time, {"operation_mode": STACK_MODE}],
         ),
-        _worker_node(
-            "run_subscribe_msckf",
-            [_openvins_params(config_file, data, space), use_sim_time],
-            name="openvins_vio_node",
-            package="ov_msckf",
-        ),
-        _worker_node(
-            "vio_pose_adapter_node",
-            [_node_params(data, "vio_pose_adapter_node"), use_sim_time],
-        ),
-        _worker_node(
-            "rl_local_planner_node",
-            [_node_params(data, "rl_local_planner_node"), use_sim_time, {"enabled": True}],
-        ),
-        _worker_node(
-            "ai_detection_node",
-            [_node_params(data, "ai_detection_node"), _ai_topic_params(data, space), use_sim_time],
-        ),
-        _worker_node(
-            "global_planner_node",
-            [_node_params(data, "global_planner_node"), use_sim_time, {"enabled": True}],
-        ),
+    ])
+
+    if enable_adas_stack:
+        actions.extend([
+            _worker_node(
+                "run_subscribe_msckf",
+                [_openvins_params(config_file, data, space), use_sim_time],
+                name="openvins_vio_node",
+                package="ov_msckf",
+            ),
+            _worker_node(
+                "vio_pose_adapter_node",
+                [_node_params(data, "vio_pose_adapter_node"), use_sim_time],
+            ),
+            _worker_node(
+                "ai_detection_node",
+                [_node_params(data, "ai_detection_node"), _ai_topic_params(data, space), use_sim_time],
+            ),
+            _worker_node(
+                "rl_local_planner_node",
+                [_node_params(data, "rl_local_planner_node"), use_sim_time, {"enabled": True}],
+            ),
+            _worker_node(
+                "global_planner_node",
+                [_node_params(data, "global_planner_node"), use_sim_time, {"enabled": True}],
+            ),
+        ])
+    else:
+        actions.append(LogInfo(msg="ADAS camera is disabled; ADAS/FSD worker nodes will not start."))
+
+    actions.append(
         _worker_node(
             "autonomy_manager_node",
             [
@@ -408,13 +437,13 @@ def _make_stack(context, *args, **kwargs):
                     "speed_limit": 0.0,
                     "enable_ai": False,
                     "map_dir": map_dir,
-                    **_managed_nodes(simulation),
+                    **_managed_nodes(simulation, enable_adas_stack),
                 },
             ],
             name="autonomy_manager",
             output="screen",
         ),
-    ])
+    )
     return actions
 
 

@@ -14,7 +14,7 @@ operation_modes:
 camera_bindings:
   simulation:
     - role: adas
-      enabled: true
+      enabled: false
       model: d435
       camera_name: adas_camera
       rgb_topic: /robot_4w4l/adas_camera/rgb/image_raw
@@ -51,7 +51,7 @@ camera_bindings:
 
   real:
     - role: adas
-      enabled: true
+      enabled: false
       usb_port_id: ""
       model: d435
       camera_name: adas_camera

@@ -161,7 +161,6 @@ public:
     for (const auto & item : managed_nodes_) {
       all_nodes.insert(all_nodes.end(), item.second.begin(), item.second.end());
     }
-    all_nodes.push_back("ai_detection_node");
     std::sort(all_nodes.begin(), all_nodes.end());
     all_nodes.erase(std::unique(all_nodes.begin(), all_nodes.end()), all_nodes.end());
 
