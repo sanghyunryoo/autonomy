@@ -143,7 +143,7 @@ public:
       });
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.mapping",
-      {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node", "orbslam3_node"});
+      std::vector<std::string>{});
 
     mode_ = parseMode(get_parameter("startup_mode").as_string());
     speed_limit_ = static_cast<float>(get_parameter("speed_limit").as_double());
@@ -244,11 +244,7 @@ private:
     response->accepted = true;
     response->current_mode = mode_;
     response->message = "Mode changed to " + modeName(mode_);
-    RCLCPP_INFO(
-      get_logger(),
-      "Mode changed to %s reason='%s'",
-      modeName(mode_).c_str(),
-      request->reason.c_str());
+    RCLCPP_INFO(get_logger(), "Mode changed to %s", modeName(mode_).c_str());
   }
 
   void onSetEstop(

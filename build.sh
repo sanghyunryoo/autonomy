@@ -110,6 +110,19 @@ ensure_onnxruntime() {
     die "ONNX Runtime library was not extracted into ${ort_dir}"
 }
 
+clean_third_party_build_artifacts() {
+  local orb_root="${script_dir}/third_party/orb_slam3"
+
+  echo "Cleaning third-party source-tree build artifacts..."
+  rm -rf \
+    "${orb_root}/build" \
+    "${orb_root}/lib" \
+    "${orb_root}/Thirdparty/DBoW2/build" \
+    "${orb_root}/Thirdparty/DBoW2/lib" \
+    "${orb_root}/Thirdparty/g2o/build" \
+    "${orb_root}/Thirdparty/g2o/lib"
+}
+
 host_arch="$(uname -m)"
 if [[ "${host_arch}" != "${target_arch}" && -z "${CMAKE_TOOLCHAIN_FILE:-}" ]]; then
   echo "warning: host arch is ${host_arch}, target is ${target_arch}, and CMAKE_TOOLCHAIN_FILE is not set." >&2
@@ -121,6 +134,7 @@ ensure_onnxruntime
 if [[ "${clean}" == true ]]; then
   echo "Cleaning workspace build/install/log..."
   rm -rf "${workspace_dir}/build" "${workspace_dir}/install" "${workspace_dir}/log"
+  clean_third_party_build_artifacts
 fi
 
 set +u

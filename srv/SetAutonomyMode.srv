@@ -9,7 +9,6 @@ uint8 ESTOP=6
 string operation_mode
 float32 speed_limit
 bool enable_ai
-string reason
 ---
 bool accepted
 uint8 current_mode
