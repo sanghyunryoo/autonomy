@@ -21,7 +21,7 @@ Environment:
   ONNXRUNTIME_VERSION    ONNX Runtime binary release. Default: 1.18.1
   OPENVINS_REPO          OpenVINS git repository. Default: https://github.com/rpng/open_vins.git
   OPENVINS_VERSION       OpenVINS git branch/tag/commit. Default: master
-  SKIP_OPENVINS_CLONE    Set to 1 when OpenVINS is already provided in the workspace.
+  SKIP_OPENVINS_CLONE    Set to 1 when OpenVINS is already provided in third_party/open_vins.
 EOF
 }
 
@@ -115,23 +115,45 @@ ensure_onnxruntime() {
 
 clean_third_party_build_artifacts() {
   echo "Cleaning third-party source-tree build artifacts..."
-  rm -rf "${workspace_dir}/src/open_vins/build"
+  rm -rf "${script_dir}/third_party/open_vins/build"
 }
 
 ensure_openvins() {
-  local openvins_dir="${workspace_dir}/src/open_vins"
-  if [[ -f "${openvins_dir}/ov_msckf/package.xml" ]]; then
+  local third_party_openvins="${script_dir}/third_party/open_vins"
+  local workspace_openvins="${workspace_dir}/src/open_vins"
+
+  if [[ ! -f "${third_party_openvins}/ov_msckf/package.xml" && -f "${workspace_openvins}/ov_msckf/package.xml" && ! -L "${workspace_openvins}" ]]; then
+    echo "Moving existing workspace OpenVINS into ${third_party_openvins}..."
+    mkdir -p "$(dirname "${third_party_openvins}")"
+    mv "${workspace_openvins}" "${third_party_openvins}"
+  fi
+
+  if [[ ! -f "${third_party_openvins}/ov_msckf/package.xml" ]]; then
+    if [[ "${SKIP_OPENVINS_CLONE:-0}" == "1" ]]; then
+      die "OpenVINS not found at ${third_party_openvins}. Add it there or unset SKIP_OPENVINS_CLONE."
+    fi
+
+    local repo="${OPENVINS_REPO:-https://github.com/rpng/open_vins.git}"
+    local version="${OPENVINS_VERSION:-master}"
+    echo "Cloning OpenVINS ${version} into ${third_party_openvins}..."
+    git clone --recursive --branch "${version}" "${repo}" "${third_party_openvins}"
+  fi
+
+  if [[ -L "${workspace_openvins}" ]]; then
+    local linked_target
+    linked_target="$(readlink "${workspace_openvins}")"
+    if [[ "${linked_target}" != "${third_party_openvins}" ]]; then
+      rm -f "${workspace_openvins}"
+      ln -s "${third_party_openvins}" "${workspace_openvins}"
+    fi
     return
   fi
 
-  if [[ "${SKIP_OPENVINS_CLONE:-0}" == "1" ]]; then
-    die "OpenVINS not found at ${openvins_dir}. Add it to the workspace or unset SKIP_OPENVINS_CLONE."
+  if [[ -e "${workspace_openvins}" ]]; then
+    die "${workspace_openvins} exists but is not the managed OpenVINS symlink."
   fi
 
-  local repo="${OPENVINS_REPO:-https://github.com/rpng/open_vins.git}"
-  local version="${OPENVINS_VERSION:-master}"
-  echo "Cloning OpenVINS ${version} into ${openvins_dir}..."
-  git clone --recursive --branch "${version}" "${repo}" "${openvins_dir}"
+  ln -s "${third_party_openvins}" "${workspace_openvins}"
 }
 
 host_arch="$(uname -m)"
