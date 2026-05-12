@@ -44,6 +44,10 @@ void PointCloudMergerNode::loadParameters()
   min_range_ = declare_parameter<double>("depth_filter.min_range", min_range_);
   max_range_ = declare_parameter<double>("depth_filter.max_range", max_range_);
   pixel_stride_ = declare_parameter<int>("depth_filter.pixel_stride", pixel_stride_);
+  respect_autonomy_mode_ = declare_parameter<bool>(
+    "respect_autonomy_mode", respect_autonomy_mode_);
+  autonomy_status_topic_ = declare_parameter<std::string>(
+    "autonomy_status_topic", autonomy_status_topic_);
 
   const std::vector<std::string> default_camera_names;
   const auto camera_names =
@@ -305,6 +309,15 @@ void PointCloudMergerNode::createIo()
 {
   const auto input_qos = rclcpp::SensorDataQoS();
 
+  if (respect_autonomy_mode_) {
+    autonomy_sub_ = create_subscription<height_map_ros2::msg::AutonomyState>(
+      autonomy_status_topic_,
+      rclcpp::QoS(10),
+      [this](height_map_ros2::msg::AutonomyState::SharedPtr msg) {
+        onAutonomyState(std::move(msg));
+      });
+  }
+
   for (const auto & camera : cameras_) {
     depth_subscriptions_.push_back(create_subscription<ImageMsg>(
       camera.depth_topic,
@@ -347,17 +360,48 @@ void PointCloudMergerNode::createIo()
 void PointCloudMergerNode::publishHeartbeat()
 {
   std_msgs::msg::String msg;
-  msg.data = cameras_.empty() ? "degraded:no_cameras" : "ready";
+  if (!processingActive()) {
+    msg.data = "standby";
+  } else {
+    msg.data = cameras_.empty() ? "degraded:no_cameras" : "ready";
+  }
   heartbeat_pub_->publish(msg);
+}
+
+void PointCloudMergerNode::onAutonomyState(height_map_ros2::msg::AutonomyState::SharedPtr msg)
+{
+  autonomy_mode_ = msg->mode;
+  has_autonomy_state_ = true;
+}
+
+bool PointCloudMergerNode::processingActive() const
+{
+  if (!respect_autonomy_mode_) {
+    return true;
+  }
+  if (!has_autonomy_state_) {
+    return false;
+  }
+  return autonomy_mode_ == height_map_ros2::msg::AutonomyState::DRIVE ||
+    autonomy_mode_ == height_map_ros2::msg::AutonomyState::ADAS ||
+    autonomy_mode_ == height_map_ros2::msg::AutonomyState::FSD ||
+    autonomy_mode_ == height_map_ros2::msg::AutonomyState::MAPPING;
 }
 
 void PointCloudMergerNode::onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg)
 {
+  if (!processingActive()) {
+    return;
+  }
   latest_camera_infos_[camera_name] = std::move(msg);
 }
 
 void PointCloudMergerNode::onDepth(const std::string & camera_name, ImageMsgPtr msg)
 {
+  if (!processingActive()) {
+    return;
+  }
+
   RCLCPP_DEBUG(
     get_logger(),
     "Received depth camera='%s' frame='%s' size=%ux%u encoding=%s",
@@ -372,6 +416,12 @@ void PointCloudMergerNode::onDepth(const std::string & camera_name, ImageMsgPtr 
 
 void PointCloudMergerNode::onPublishTimer()
 {
+  if (!processingActive()) {
+    latest_depths_.clear();
+    latest_camera_infos_.clear();
+    return;
+  }
+
   const auto now = get_clock()->now();
 
   auto merged_cloud = mergeLatestClouds(now);

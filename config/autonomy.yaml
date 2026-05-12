@@ -107,6 +107,8 @@ pointcloud_merge_node:
     static_tf_frame_prefix: "4w4l/"
     publish_rate_hz: 20.0
     max_cloud_age_sec: 0.0
+    respect_autonomy_mode: true
+    autonomy_status_topic: /autonomy_manager/status
 
     depth_filter:
       min_range: 0.05
@@ -121,6 +123,8 @@ elevation_mapping_node:
     output_masked_height_scan_topic: ~/masked_height_scan
     command_filter_service_name: ~/command_filter
     operation_mode: adas
+    respect_autonomy_mode: true
+    autonomy_status_topic: /autonomy_manager/status
 
     dds:
       height_map:

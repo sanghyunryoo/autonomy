@@ -13,6 +13,7 @@
 #include "dds_height_map_publisher.hpp"
 #include "elevation_map_backend.hpp"
 #include "height_map_model.hpp"
+#include "height_map_ros2/msg/autonomy_state.hpp"
 #include "height_map_ros2/msg/masked_height_scan.hpp"
 #include "height_map_ros2/srv/command_filter.hpp"
 
@@ -28,10 +29,12 @@ private:
   void loadParameters();
   void createIo();
   void publishHeartbeat();
+  void onAutonomyState(height_map_ros2::msg::AutonomyState::SharedPtr msg);
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void onCommandFilter(
     const std::shared_ptr<height_map_ros2::srv::CommandFilter::Request> request,
     std::shared_ptr<height_map_ros2::srv::CommandFilter::Response> response);
+  [[nodiscard]] bool processingActive() const;
   void fillDebugGrid(ElevationGrid & grid) const;
   [[nodiscard]] sensor_msgs::msg::PointCloud2 gridToPointCloud(const ElevationGrid & grid) const;
   [[nodiscard]] bool isPathClear(
@@ -52,6 +55,10 @@ private:
   std::string output_local_terrain_scan_topic_{"~/local_terrain_map"};
   bool local_terrain_map_config_enabled_{true};
   bool local_terrain_map_enabled_{false};
+  bool respect_autonomy_mode_{false};
+  bool has_autonomy_state_{false};
+  uint8_t autonomy_mode_{height_map_ros2::msg::AutonomyState::IDLE};
+  std::string autonomy_status_topic_{"/autonomy_manager/status"};
   bool dds_height_map_enabled_{true};
   int dds_domain_id_{0};
   std::string dds_height_map_topic_{"height_map"};
@@ -72,6 +79,7 @@ private:
   HeightMapFrame latest_height_map_;
   bool has_latest_height_map_{false};
 
+  rclcpp::Subscription<height_map_ros2::msg::AutonomyState>::SharedPtr autonomy_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr elevation_image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr elevation_cloud_pub_;

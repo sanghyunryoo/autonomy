@@ -384,7 +384,12 @@ def _make_stack(context, *args, **kwargs):
     if not simulation:
         actions.append(_worker_node(
             "realsense_usb_mapper.py",
-            [{"mapping_file": config_file, "operation_mode": STACK_MODE}],
+            [{
+                "mapping_file": config_file,
+                "operation_mode": STACK_MODE,
+                "respect_autonomy_mode": True,
+                "autonomy_status_topic": "/autonomy_manager/status",
+            }],
             name="realsense_usb_mapper",
         ))
 

@@ -14,6 +14,8 @@
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
+#include "height_map_ros2/msg/autonomy_state.hpp"
+
 namespace height_map_ros2
 {
 
@@ -45,9 +47,11 @@ private:
   void createIo();
   void publishStaticTransformsFromUrdf();
   void publishHeartbeat();
+  void onAutonomyState(height_map_ros2::msg::AutonomyState::SharedPtr msg);
   void onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg);
   void onDepth(const std::string & camera_name, ImageMsgPtr msg);
   void onPublishTimer();
+  [[nodiscard]] bool processingActive() const;
 
   [[nodiscard]] PointCloudMsg mergeLatestClouds(const rclcpp::Time & now);
   [[nodiscard]] bool appendDepthAsTransformedCloud(
@@ -65,10 +69,15 @@ private:
   double min_range_{0.05};
   double max_range_{2.5};
   int pixel_stride_{2};
+  bool respect_autonomy_mode_{false};
+  bool has_autonomy_state_{false};
+  uint8_t autonomy_mode_{height_map_ros2::msg::AutonomyState::IDLE};
+  std::string autonomy_status_topic_{"/autonomy_manager/status"};
   std::vector<CameraSource> cameras_;
 
   std::unordered_map<std::string, ImageMsgPtr> latest_depths_;
   std::unordered_map<std::string, CameraInfoMsgPtr> latest_camera_infos_;
+  rclcpp::Subscription<height_map_ros2::msg::AutonomyState>::SharedPtr autonomy_sub_;
   std::vector<rclcpp::Subscription<ImageMsg>::SharedPtr> depth_subscriptions_;
   std::vector<rclcpp::Subscription<CameraInfoMsg>::SharedPtr> camera_info_subscriptions_;
   rclcpp::Publisher<PointCloudMsg>::SharedPtr merged_cloud_pub_;

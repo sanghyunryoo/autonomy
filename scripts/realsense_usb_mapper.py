@@ -12,6 +12,8 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
+from height_map_ros2.msg import AutonomyState
+
 
 def import_runtime_modules():
     try:
@@ -52,10 +54,19 @@ class RealSenseUsbMapper(Node):
         self.declare_parameter("mapping_file", "")
         self.declare_parameter("operation_mode", "drive")
         self.declare_parameter("publish_rate_hz", 1.0)
+        self.declare_parameter("respect_autonomy_mode", False)
+        self.declare_parameter("autonomy_status_topic", "/autonomy_manager/status")
 
         self._np, self._rs, self._yaml = import_runtime_modules()
         self._mapping_file = self.get_parameter("mapping_file").value
         self._operation_mode = str(self.get_parameter("operation_mode").value).strip().lower()
+        self._respect_autonomy_mode = parse_bool(
+            self.get_parameter("respect_autonomy_mode").value,
+            default=False,
+        )
+        self._autonomy_status_topic = str(self.get_parameter("autonomy_status_topic").value)
+        self._has_autonomy_state = False
+        self._autonomy_mode = AutonomyState.IDLE
         self._config = self._load_config(self._mapping_file)
         self._bindings = self._select_bindings_for_operation_mode(
             self._config["camera_bindings"],
@@ -73,13 +84,45 @@ class RealSenseUsbMapper(Node):
         self._depth_scales = {}
         self._active_profiles = {}
         self._logged_depth_publishers = set()
-        self._start_cameras()
+        self._autonomy_sub = None
+        if self._respect_autonomy_mode:
+            self._autonomy_sub = self.create_subscription(
+                AutonomyState,
+                self._autonomy_status_topic,
+                self._on_autonomy_state,
+                10,
+            )
+        if self._processing_active():
+            self._start_cameras()
 
         period = 1.0 / max(1.0, float(self._stream["depth_fps"]))
         self._timer = self.create_timer(period, self._publish_depth_maps)
         self._status_timer = self.create_timer(1.0, self._publish_status)
         self._heartbeat_timer = self.create_timer(0.5, self._publish_heartbeat)
         self._publish_status()
+
+    def _on_autonomy_state(self, msg):
+        was_active = self._processing_active()
+        self._autonomy_mode = msg.mode
+        self._has_autonomy_state = True
+        is_active = self._processing_active()
+
+        if is_active and not was_active:
+            self._start_cameras()
+        elif was_active and not is_active:
+            self._stop_cameras()
+
+    def _processing_active(self):
+        if not self._respect_autonomy_mode:
+            return True
+        if not self._has_autonomy_state:
+            return False
+        return self._autonomy_mode in (
+            AutonomyState.DRIVE,
+            AutonomyState.ADAS,
+            AutonomyState.FSD,
+            AutonomyState.MAPPING,
+        )
 
     def _load_config(self, mapping_file):
         if not mapping_file:
@@ -254,6 +297,8 @@ class RealSenseUsbMapper(Node):
         } or configured in str(device_info.get("physical_port", ""))
 
     def _start_cameras(self):
+        if self._pipelines:
+            return
         connected = self._connected_devices()
         for binding in self._bindings:
             device_info = self._resolve_binding_device(binding, connected)
@@ -279,6 +324,20 @@ class RealSenseUsbMapper(Node):
             self._camera_info_publishers[role] = self.create_publisher(
                 CameraInfo, binding["camera_info_topic"], qos_profile_sensor_data
             )
+
+    def _stop_cameras(self):
+        for pipeline in self._pipelines.values():
+            try:
+                pipeline.stop()
+            except RuntimeError:
+                pass
+        self._pipelines.clear()
+        self._intrinsics.clear()
+        self._depth_scales.clear()
+        self._active_profiles.clear()
+        self._depth_publishers.clear()
+        self._camera_info_publishers.clear()
+        self._logged_depth_publishers.clear()
 
     def _candidate_profiles(self, binding):
         candidates = [
@@ -366,6 +425,9 @@ class RealSenseUsbMapper(Node):
             return
 
     def _publish_depth_maps(self):
+        if not self._processing_active():
+            return
+
         for binding in self._bindings:
             role = binding["role"]
             pipeline = self._pipelines.get(role)
@@ -440,6 +502,12 @@ class RealSenseUsbMapper(Node):
         return msg
 
     def _publish_status(self):
+        if not self._processing_active():
+            msg = String()
+            msg.data = json.dumps({"status": "standby", "bindings": []}, sort_keys=True)
+            self._binding_pub.publish(msg)
+            return
+
         connected = self._connected_devices()
         connected_serials = set(connected.keys())
         connected_usb_ports = {
@@ -476,7 +544,10 @@ class RealSenseUsbMapper(Node):
 
     def _publish_heartbeat(self):
         msg = String()
-        msg.data = "ready" if self._pipelines else "degraded:no_active_cameras"
+        if not self._processing_active():
+            msg.data = "standby"
+        else:
+            msg.data = "ready" if self._pipelines else "degraded:no_active_cameras"
         self._heartbeat_pub.publish(msg)
 
 
@@ -488,8 +559,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        for pipeline in node._pipelines.values():
-            pipeline.stop()
+        node._stop_cameras()
         node.destroy_node()
         rclpy.shutdown()
 

@@ -82,6 +82,7 @@ ament_target_dependencies(elevation_mapping_node
   std_msgs
 )
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(pointcloud_merge_node "${cpp_typesupport_target}")
 target_link_libraries(elevation_mapping_node "${cpp_typesupport_target}")
 target_link_libraries(elevation_mapping_node fastcdr fastrtps)
 
