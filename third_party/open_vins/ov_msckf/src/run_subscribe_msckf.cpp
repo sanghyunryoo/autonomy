@@ -110,6 +110,18 @@ int main(int argc, char **argv) {
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(node);
   executor.spin();
+  executor.remove_node(node);
+#endif
+
+#if ROS_AVAILABLE == 2
+  // In the autonomy stack this process is supervised by ros2 launch. On Ctrl-C
+  // we need to return promptly instead of doing final visualization/export work
+  // that can keep worker threads alive and delay shutdown.
+  viz.reset();
+  sys.reset();
+  node.reset();
+  rclcpp::shutdown();
+  return EXIT_SUCCESS;
 #endif
 
   // Final visualization

@@ -9,7 +9,8 @@ from launch_ros.actions import Node
 
 
 PACKAGE_NAME = "height_map_ros2"
-NODE_SHUTDOWN_TIMEOUT = "1.0"
+NODE_SIGTERM_TIMEOUT = "0.5"
+NODE_SIGKILL_TIMEOUT = "1.0"
 QUIET_WORKER_ROS_ARGS = ["--ros-args", "--log-level", "fatal"]
 STACK_MODE = "fsd"  # Keep every camera/node needed for runtime mode switching available.
 
@@ -341,8 +342,8 @@ def _worker_node(executable, parameters, name=None, output="log", package=PACKAG
         name=name or executable,
         output=output,
         arguments=QUIET_WORKER_ROS_ARGS if output != "screen" else [],
-        sigterm_timeout=NODE_SHUTDOWN_TIMEOUT,
-        sigkill_timeout=NODE_SHUTDOWN_TIMEOUT,
+        sigterm_timeout=NODE_SIGTERM_TIMEOUT,
+        sigkill_timeout=NODE_SIGKILL_TIMEOUT,
         parameters=parameters,
     )
 
