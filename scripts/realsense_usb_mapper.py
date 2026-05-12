@@ -15,23 +15,37 @@ from std_msgs.msg import String
 from height_map_ros2.msg import AutonomyState
 
 
-def import_runtime_modules():
+def import_yaml_module():
     try:
-        import numpy as np
-        import pyrealsense2 as rs
         import yaml
     except ModuleNotFoundError as exc:
         print(
             f"Missing Python module: {exc.name}\n"
             "Install dependencies before running this node.\n"
             "Example:\n"
-            "  python3 -m pip install pyrealsense2\n"
             "  sudo apt install python3-yaml",
             file=sys.stderr,
         )
         raise SystemExit(2) from exc
 
-    return np, rs, yaml
+    return yaml
+
+
+def import_realsense_runtime_modules():
+    try:
+        import numpy as np
+        import pyrealsense2 as rs
+    except ModuleNotFoundError as exc:
+        print(
+            f"Missing Python module: {exc.name}\n"
+            "Install dependencies before running cameras.\n"
+            "Example:\n"
+            "  python3 -m pip install pyrealsense2",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from exc
+
+    return np, rs
 
 
 def parse_bool(value, default=True):
@@ -57,7 +71,9 @@ class RealSenseUsbMapper(Node):
         self.declare_parameter("respect_autonomy_mode", False)
         self.declare_parameter("autonomy_status_topic", "/autonomy_manager/status")
 
-        self._np, self._rs, self._yaml = import_runtime_modules()
+        self._yaml = import_yaml_module()
+        self._np = None
+        self._rs = None
         self._mapping_file = self.get_parameter("mapping_file").value
         self._operation_mode = str(self.get_parameter("operation_mode").value).strip().lower()
         self._respect_autonomy_mode = parse_bool(
@@ -123,6 +139,10 @@ class RealSenseUsbMapper(Node):
             AutonomyState.FSD,
             AutonomyState.MAPPING,
         )
+
+    def _ensure_runtime_modules(self):
+        if self._np is None or self._rs is None:
+            self._np, self._rs = import_realsense_runtime_modules()
 
     def _load_config(self, mapping_file):
         if not mapping_file:
@@ -193,29 +213,15 @@ class RealSenseUsbMapper(Node):
 
         mode = operation_modes.get(operation_mode) or {}
         camera_roles = [str(role) for role in mode.get("camera_roles", [])]
-        require_roles = [str(role) for role in mode.get("require_roles", [])]
         role_allowlist = set(camera_roles)
 
         selected = []
-        role_to_binding = {}
         for binding in bindings:
             role = str(binding.get("role", ""))
             if camera_roles and role not in role_allowlist:
                 continue
-            role_to_binding[role] = binding
             if parse_bool(binding.get("enabled", True), default=True):
                 selected.append(binding)
-
-        enabled_roles = {str(binding.get("role", "")) for binding in selected}
-        missing = [
-            role for role in require_roles
-            if role not in role_to_binding or role not in enabled_roles
-        ]
-        if missing:
-            raise RuntimeError(
-                f"operation_mode '{operation_mode}' requires enabled camera role(s): "
-                + ", ".join(missing)
-            )
 
         return selected
 
@@ -299,6 +305,7 @@ class RealSenseUsbMapper(Node):
     def _start_cameras(self):
         if self._pipelines:
             return
+        self._ensure_runtime_modules()
         connected = self._connected_devices()
         for binding in self._bindings:
             device_info = self._resolve_binding_device(binding, connected)
