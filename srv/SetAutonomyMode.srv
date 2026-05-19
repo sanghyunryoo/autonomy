@@ -4,13 +4,15 @@ uint8 ADAS=2
 uint8 FSD=3
 uint8 MAPPING=4
 uint8 ERROR=5
-uint8 ESTOP=6
 
 string operation_mode
 float32 speed_limit
 bool enable_ai
-bool estop
+bool segmentation
 ---
 bool accepted
 uint8 current_mode
-string message      
+bool enable_ai
+bool segmentation
+string message
+

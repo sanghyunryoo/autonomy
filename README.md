@@ -92,7 +92,21 @@ Change mode at runtime:
 
 ```bash
 ros2 service call /autonomy_manager/set_mode height_map_ros2/srv/SetAutonomyMode \
-"{operation_mode: 'ADAS', speed_limit: 0.8, enable_ai: true}"
+"{operation_mode: 'ADAS', speed_limit: 0.8, enable_ai: true, segmentation: false}"
+```
+
+Trigger ESTOP:
+
+```bash
+ros2 service call /autonomy_manager/set_estop height_map_ros2/srv/SetEstop \
+"{active: true, reason: 'operator'}"
+```
+
+Clear ESTOP and restore the previously requested mode:
+
+```bash
+ros2 service call /autonomy_manager/set_estop height_map_ros2/srv/SetEstop \
+"{active: false, reason: 'operator'}"
 ```
 
 Monitor the manager status:

@@ -48,8 +48,6 @@ std::string modeName(const std::uint8_t mode)
       return "FSD";
     case AutonomyStateMsg::MAPPING:
       return "MAPPING";
-    case AutonomyStateMsg::ESTOP:
-      return "ESTOP";
     case AutonomyStateMsg::ERROR:
     default:
       return "ERROR";
@@ -74,22 +72,19 @@ std::uint8_t parseMode(const std::string & text)
   if (value == "MAPPING") {
     return AutonomyStateMsg::MAPPING;
   }
-  if (value == "ESTOP") {
-    return AutonomyStateMsg::ESTOP;
-  }
   return AutonomyStateMsg::ERROR;
 }
 
 bool validMode(const std::uint8_t mode)
 {
-  return mode <= AutonomyStateMsg::ESTOP;
+  return mode <= AutonomyStateMsg::ERROR;
 }
 
 bool validModeText(const std::string & text)
 {
   const auto value = upper(text);
   return value == "IDLE" || value == "DRIVE" || value == "ADAS" || value == "FSD" ||
-         value == "MAPPING" || value == "ERROR" || value == "ESTOP";
+         value == "MAPPING" || value == "ERROR";
 }
 
 struct NodeStatus
@@ -119,6 +114,7 @@ public:
     declare_parameter<std::string>("map_dir", "");
     declare_parameter<double>("speed_limit", 0.0);
     declare_parameter<bool>("enable_ai", false);
+    declare_parameter<bool>("segmentation", false);
     declare_parameter<double>("heartbeat_timeout_sec", 1.0);
     declare_parameter<double>("publish_rate_hz", 10.0);
     declare_parameter<std::vector<std::string>>(
@@ -148,6 +144,11 @@ public:
     mode_ = parseMode(get_parameter("startup_mode").as_string());
     speed_limit_ = static_cast<float>(get_parameter("speed_limit").as_double());
     ai_enabled_ = get_parameter("enable_ai").as_bool();
+    segmentation_enabled_ = get_parameter("segmentation").as_bool();
+    requested_mode_ = mode_;
+    requested_speed_limit_ = speed_limit_;
+    requested_ai_enabled_ = ai_enabled_;
+    requested_segmentation_enabled_ = segmentation_enabled_;
     map_dir_ = get_parameter("map_dir").as_string();
     managed_nodes_[AutonomyStateMsg::IDLE] = getStringArray("managed_nodes.idle");
     managed_nodes_[AutonomyStateMsg::DRIVE] = getStringArray("managed_nodes.drive");
@@ -155,7 +156,6 @@ public:
     managed_nodes_[AutonomyStateMsg::FSD] = getStringArray("managed_nodes.fsd");
     managed_nodes_[AutonomyStateMsg::MAPPING] = getStringArray("managed_nodes.mapping");
     managed_nodes_[AutonomyStateMsg::ERROR] = {};
-    managed_nodes_[AutonomyStateMsg::ESTOP] = {};
 
     std::vector<std::string> all_nodes;
     for (const auto & item : managed_nodes_) {
@@ -214,57 +214,94 @@ private:
     const std::shared_ptr<height_map_ros2::srv::SetAutonomyMode::Request> request,
     std::shared_ptr<height_map_ros2::srv::SetAutonomyMode::Response> response)
   {
+    response->current_mode = mode_;
+    response->enable_ai = ai_enabled_;
+    response->segmentation = segmentation_enabled_;
+
     if (!validModeText(request->operation_mode)) {
       response->accepted = false;
-      response->current_mode = mode_;
       response->message = "Invalid operation_mode";
       return;
     }
+
     const auto requested_mode = parseMode(request->operation_mode);
-    if (estop_active_ && requested_mode != AutonomyStateMsg::ESTOP) {
-      response->accepted = false;
-      response->current_mode = mode_;
-      response->message = "ESTOP is active";
-      return;
-    }
+
     if (requested_mode == AutonomyStateMsg::FSD && !mapReady()) {
       response->accepted = false;
-      response->current_mode = mode_;
       response->message = "FSD requires at least one map file in map_dir: " + map_dir_;
       error_code_ = 1001;
       return;
     }
 
-    mode_ = requested_mode;
-    speed_limit_ = request->speed_limit;
-    ai_enabled_ = request->enable_ai;
-    error_code_ = 0;
-    error_active_ = mode_ == AutonomyStateMsg::ERROR;
+    requested_mode_ = requested_mode;
+    requested_speed_limit_ = request->speed_limit;
+    requested_ai_enabled_ = request->enable_ai;
+    requested_segmentation_enabled_ = request->segmentation;
+
+    if (!estop_active_) {
+      applyRequestedMode();
+      response->message = "Mode changed to " + modeName(mode_);
+      RCLCPP_INFO(
+        get_logger(),
+        "Mode changed to %s ai=%s segmentation=%s",
+        modeName(mode_).c_str(),
+        boolText(ai_enabled_).c_str(),
+        boolText(segmentation_enabled_).c_str());
+    } else {
+      response->message = "Mode queued until ESTOP is cleared: " + modeName(requested_mode_);
+      RCLCPP_INFO(
+        get_logger(),
+        "Mode queued during ESTOP: %s ai=%s segmentation=%s",
+        modeName(requested_mode_).c_str(),
+        boolText(requested_ai_enabled_).c_str(),
+        boolText(requested_segmentation_enabled_).c_str());
+    }
+
+    error_code_ = estop_active_ ? 2001 : 0;
+    error_active_ = !estop_active_ && mode_ == AutonomyStateMsg::ERROR;
     response->accepted = true;
     response->current_mode = mode_;
-    response->message = "Mode changed to " + modeName(mode_);
-    RCLCPP_INFO(get_logger(), "Mode changed to %s", modeName(mode_).c_str());
+    response->enable_ai = ai_enabled_;
+    response->segmentation = segmentation_enabled_;
   }
 
   void onSetEstop(
     const std::shared_ptr<height_map_ros2::srv::SetEstop::Request> request,
     std::shared_ptr<height_map_ros2::srv::SetEstop::Response> response)
   {
-    estop_active_ = request->active;
-    mode_ = estop_active_ ? AutonomyStateMsg::ESTOP : AutonomyStateMsg::IDLE;
-    response->accepted = true;
-    response->current_mode = mode_;
-    response->message = estop_active_ ? "ESTOP active" : "ESTOP cleared";
-    if (estop_active_) {
+    if (request->active) {
+      if (!estop_active_) {
+        requested_mode_ = mode_;
+        requested_speed_limit_ = speed_limit_;
+        requested_ai_enabled_ = ai_enabled_;
+        requested_segmentation_enabled_ = segmentation_enabled_;
+      }
+      estop_active_ = true;
+      mode_ = AutonomyStateMsg::IDLE;
+      speed_limit_ = 0.0F;
+      ai_enabled_ = false;
+      segmentation_enabled_ = false;
       error_code_ = 2001;
+      error_active_ = false;
+      response->message = "ESTOP active; effective mode forced to IDLE";
     } else {
+      estop_active_ = false;
+      applyRequestedMode();
       error_code_ = 0;
+      error_active_ = mode_ == AutonomyStateMsg::ERROR;
+      response->message = "ESTOP cleared; restored mode " + modeName(mode_);
     }
+
+    response->accepted = true;
+    response->estop_active = estop_active_;
+    response->current_mode = mode_;
     RCLCPP_WARN(
       get_logger(),
-      "ESTOP %s reason='%s'",
+      "ESTOP %s reason='%s' effective_mode=%s requested_mode=%s",
       estop_active_ ? "active" : "cleared",
-      request->reason.c_str());
+      request->reason.c_str(),
+      modeName(mode_).c_str(),
+      modeName(requested_mode_).c_str());
   }
 
   void classifyNodes(
@@ -307,6 +344,7 @@ private:
     msg.estop_active = estop_active_;
     msg.error_active = error_active_ || !degraded.empty();
     msg.ai_enabled = ai_enabled_;
+    msg.segmentation_enabled = segmentation_enabled_;
     msg.speed_limit = speed_limit_;
     msg.error_code = error_active_ ? std::max(error_code_, 1) : error_code_;
     if (has_pose_) {
@@ -347,6 +385,7 @@ private:
         << " error_code=" << msg.error_code
         << " estop=" << boolText(msg.estop_active)
         << " ai=" << boolText(msg.ai_enabled)
+        << " segmentation=" << boolText(msg.segmentation_enabled)
         << " speed_limit=" << std::setprecision(2) << msg.speed_limit << "\n";
 
     out << std::setprecision(3)
@@ -412,6 +451,14 @@ private:
     return expected;
   }
 
+  void applyRequestedMode()
+  {
+    mode_ = requested_mode_;
+    speed_limit_ = requested_speed_limit_;
+    ai_enabled_ = requested_ai_enabled_;
+    segmentation_enabled_ = requested_segmentation_enabled_;
+  }
+
   bool mapReady() const
   {
     if (map_dir_.empty()) {
@@ -434,11 +481,16 @@ private:
   }
 
   std::uint8_t mode_{AutonomyStateMsg::IDLE};
+  std::uint8_t requested_mode_{AutonomyStateMsg::IDLE};
   bool estop_active_{false};
   bool error_active_{false};
   bool ai_enabled_{false};
+  bool requested_ai_enabled_{false};
+  bool segmentation_enabled_{false};
+  bool requested_segmentation_enabled_{false};
   bool has_pose_{false};
   float speed_limit_{0.0F};
+  float requested_speed_limit_{0.0F};
   int error_code_{0};
   std::string map_dir_;
   geometry_msgs::msg::Pose latest_pose_;

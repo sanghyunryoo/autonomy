@@ -27,7 +27,9 @@ for ROS launch and offline generation/utilities only.
 - FSD: elevation stack, AI detection, VIO, global planner, RL local planner.
 - MAPPING: elevation stack plus VIO/localization.
 - ERROR: no autonomous actuation.
-- ESTOP: emergency stop state.
+- ESTOP is a safety latch, not an operation mode. When active, the effective mode
+  is forced to IDLE to reduce board resource usage. Clearing ESTOP restores the
+  previously requested mode.
 
 ## Manager Contract
 

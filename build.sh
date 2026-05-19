@@ -22,12 +22,49 @@ Environment:
   OPENVINS_REPO          OpenVINS git repository. Default: https://github.com/rpng/open_vins.git
   OPENVINS_VERSION       OpenVINS git branch/tag/commit. Default: master
   SKIP_OPENVINS_CLONE    Set to 1 when OpenVINS is already provided in third_party/open_vins.
+  ALLOW_CONDA_BUILD_ENV  Set to 1 to keep conda paths in the build environment.
 EOF
 }
 
 die() {
   echo "error: $*" >&2
   exit 1
+}
+
+drop_path_prefix() {
+  local value="${1:-}"
+  local prefix="${2:-}"
+  local cleaned=""
+  local entry
+
+  IFS=':' read -r -a entries <<< "${value}"
+  for entry in "${entries[@]}"; do
+    [[ -z "${entry}" ]] && continue
+    if [[ -n "${prefix}" && "${entry}" == "${prefix}"* ]]; then
+      continue
+    fi
+    if [[ -z "${cleaned}" ]]; then
+      cleaned="${entry}"
+    else
+      cleaned="${cleaned}:${entry}"
+    fi
+  done
+  printf '%s' "${cleaned}"
+}
+
+sanitize_conda_build_env() {
+  if [[ "${ALLOW_CONDA_BUILD_ENV:-0}" == "1" ]]; then
+    return
+  fi
+
+  local conda_root="${CONDA_PREFIX:-/root/miniconda3}"
+  PATH="$(drop_path_prefix "${PATH:-}" "${conda_root}")"
+  CMAKE_PREFIX_PATH="$(drop_path_prefix "${CMAKE_PREFIX_PATH:-}" "${conda_root}")"
+  LD_LIBRARY_PATH="$(drop_path_prefix "${LD_LIBRARY_PATH:-}" "${conda_root}")"
+  LIBRARY_PATH="$(drop_path_prefix "${LIBRARY_PATH:-}" "${conda_root}")"
+  PKG_CONFIG_PATH="$(drop_path_prefix "${PKG_CONFIG_PATH:-}" "${conda_root}")"
+  unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
+  export PATH CMAKE_PREFIX_PATH LD_LIBRARY_PATH LIBRARY_PATH PKG_CONFIG_PATH
 }
 
 if [[ $# -lt 1 ]]; then
@@ -164,6 +201,7 @@ fi
 
 ensure_onnxruntime
 ensure_openvins
+sanitize_conda_build_env
 
 if [[ "${clean}" == true ]]; then
   echo "Cleaning workspace build/install/log..."
@@ -179,12 +217,18 @@ cmake_args=(
   -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
   -DONNXRUNTIME_ROOT="${ort_dir}"
   -DENABLE_ARUCO_TAGS=OFF
+  -DCMAKE_IGNORE_PREFIX_PATH="/root/miniconda3"
 )
 
 if [[ -n "${PYTHON_EXECUTABLE:-}" ]]; then
   cmake_args+=(
     -DPython3_EXECUTABLE="${PYTHON_EXECUTABLE}"
     -DPYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
+  )
+else
+  cmake_args+=(
+    -DPython3_EXECUTABLE="/usr/bin/python3"
+    -DPYTHON_EXECUTABLE="/usr/bin/python3"
   )
 fi
 
@@ -195,6 +239,7 @@ fi
 echo "Building ${package_name} for ${target_arch}"
 echo "Workspace: ${workspace_dir}"
 echo "ONNX Runtime: ${ort_dir}"
+echo "Python: ${PYTHON_EXECUTABLE:-/usr/bin/python3}"
 
 cd "${workspace_dir}"
 colcon build \

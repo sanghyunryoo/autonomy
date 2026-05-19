@@ -219,6 +219,7 @@ autonomy_manager:
     map_dir: src/height_map_ros2/map
     speed_limit: 0.0
     enable_ai: false
+    segmentation: false
     heartbeat_timeout_sec: 1.0
     publish_rate_hz: 10.0
     managed_nodes:

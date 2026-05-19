@@ -441,6 +441,7 @@ def _make_stack(context, *args, **kwargs):
                     "startup_mode": "IDLE",
                     "speed_limit": 0.0,
                     "enable_ai": False,
+                    "segmentation": False,
                     "map_dir": map_dir,
                     **_managed_nodes(simulation, enable_adas_stack),
                 },

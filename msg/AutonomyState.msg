@@ -4,7 +4,6 @@ uint8 ADAS=2
 uint8 FSD=3
 uint8 MAPPING=4
 uint8 ERROR=5
-uint8 ESTOP=6
 
 std_msgs/Header header
 uint8 mode
@@ -13,6 +12,7 @@ bool autonomy_enabled
 bool estop_active
 bool error_active
 bool ai_enabled
+bool segmentation_enabled
 float32 speed_limit
 int32 error_code
 geometry_msgs/Pose pose
