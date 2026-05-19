@@ -57,6 +57,6 @@ Mode changes use:
 
 `/autonomy_manager/set_mode`
 
-ESTOP changes use:
+ESTOP comes from `/robot_report`:
 
-`/autonomy_manager/set_estop`
+`physical_estop || comm_estop`

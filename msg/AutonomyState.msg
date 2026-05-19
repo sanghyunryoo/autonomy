@@ -1,12 +1,13 @@
-uint8 IDLE=0
-uint8 DRIVE=1
-uint8 ADAS=2
-uint8 FSD=3
-uint8 MAPPING=4
-uint8 ERROR=5
+int8 ERROR=-1
+int8 IDLE=0
+int8 DRIVE=1
+int8 ADAS=2
+int8 FSD=3
+int8 MAPPING=4
+int8 TRACKING=5
 
 std_msgs/Header header
-uint8 mode
+int8 mode
 string mode_name
 bool autonomy_enabled
 bool estop_active

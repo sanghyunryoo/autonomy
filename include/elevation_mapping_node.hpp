@@ -58,7 +58,7 @@ private:
   bool local_terrain_map_enabled_{false};
   bool respect_autonomy_mode_{false};
   bool has_autonomy_state_{false};
-  uint8_t autonomy_mode_{height_map_ros2::msg::AutonomyState::IDLE};
+  int8_t autonomy_mode_{height_map_ros2::msg::AutonomyState::IDLE};
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
   bool dds_height_map_enabled_{true};
   int dds_domain_id_{0};

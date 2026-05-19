@@ -196,6 +196,10 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
         "    camera_roles: [front, rear, adas]",
         "    require_roles: [adas]",
         "",
+        "  tracking:",
+        "    camera_roles: [front, rear, adas]",
+        "    require_roles: [adas]",
+        "",
         "camera_bindings:",
         "  simulation:",
     ]

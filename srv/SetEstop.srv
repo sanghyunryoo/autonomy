@@ -1,7 +1,0 @@
-bool active
-string reason
----
-bool accepted
-bool estop_active
-uint8 current_mode
-string message

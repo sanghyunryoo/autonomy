@@ -11,6 +11,10 @@ operation_modes:
     camera_roles: [front, rear, adas]
     require_roles: [adas]
 
+  tracking:
+    camera_roles: [front, rear, adas]
+    require_roles: [adas]
+
 camera_bindings:
   simulation:
     - role: adas
@@ -231,6 +235,7 @@ autonomy_manager:
       drive: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node]
       adas: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node]
       fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node, global_planner_node]
+      tracking: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
       mapping: []
 
 rl_local_planner_node:
@@ -260,6 +265,21 @@ ai_detection_node:
     input_height: 480
     depth_sample_radius: 3
     log_inference: true
+
+tracking_follower_node:
+  ros__parameters:
+    enabled: true
+    detections_topic: /ai_detection_node/detections
+    autonomy_status_topic: /autonomy_manager/status
+    cmd_vel_topic: /cmd_vel
+    target_label: ""
+    target_distance_m: 1.0
+    linear_gain: 0.6
+    angular_gain: 1.2
+    max_linear_speed: 0.4
+    max_angular_speed: 0.8
+    target_timeout_sec: 0.5
+    publish_rate_hz: 20.0
 
 openvins_vio_node:
   ros__parameters:

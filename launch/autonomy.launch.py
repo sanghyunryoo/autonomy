@@ -94,6 +94,7 @@ def _operation_modes(data):
         "drive": {"camera_roles": ["front", "rear"], "require_roles": []},
         "adas": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
         "fsd": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
+        "tracking": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
     }
 
 
@@ -346,11 +347,13 @@ def _managed_nodes(simulation, enable_vio):
     if not simulation:
         base = ["realsense_usb_mapper"] + base
     adas_stack = base + (["openvins_vio_node", "rl_local_planner_node"] if enable_vio else [])
+    tracking_stack = base + (["ai_detection_node", "tracking_follower_node"] if enable_vio else [])
 
     return {
         "managed_nodes.drive": base,
         "managed_nodes.adas": adas_stack,
         "managed_nodes.fsd": adas_stack + (["global_planner_node"] if enable_vio else []),
+        "managed_nodes.tracking": tracking_stack,
     }
 
 
@@ -428,9 +431,13 @@ def _make_stack(context, *args, **kwargs):
                 "global_planner_node",
                 [_node_params(data, "global_planner_node"), use_sim_time, {"enabled": True}],
             ),
+            _worker_node(
+                "tracking_follower_node",
+                [_node_params(data, "tracking_follower_node"), use_sim_time, {"enabled": True}],
+            ),
         ])
     else:
-        actions.append(LogInfo(msg="ADAS camera is disabled; ADAS/FSD worker nodes will not start."))
+        actions.append(LogInfo(msg="ADAS camera is disabled; ADAS/FSD/TRACKING worker nodes will not start."))
 
     actions.append(
         _worker_node(

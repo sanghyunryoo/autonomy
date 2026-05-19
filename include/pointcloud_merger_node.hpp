@@ -71,7 +71,7 @@ private:
   int pixel_stride_{2};
   bool respect_autonomy_mode_{false};
   bool has_autonomy_state_{false};
-  uint8_t autonomy_mode_{height_map_ros2::msg::AutonomyState::IDLE};
+  int8_t autonomy_mode_{height_map_ros2::msg::AutonomyState::IDLE};
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
   std::vector<CameraSource> cameras_;
 

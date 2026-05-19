@@ -138,6 +138,7 @@ class RealSenseUsbMapper(Node):
             AutonomyState.ADAS,
             AutonomyState.FSD,
             AutonomyState.MAPPING,
+            AutonomyState.TRACKING,
         )
 
     def _ensure_runtime_modules(self):
@@ -202,6 +203,7 @@ class RealSenseUsbMapper(Node):
             "drive": {"camera_roles": ["front", "rear"], "require_roles": []},
             "adas": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
             "fsd": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
+            "tracking": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
         }
 
     def _select_bindings_for_operation_mode(self, bindings, operation_modes, operation_mode):

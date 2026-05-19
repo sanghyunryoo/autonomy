@@ -39,7 +39,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MaskedHeightScan.msg"
   "msg/RobotReport.msg"
   "srv/SetAutonomyMode.srv"
-  "srv/SetEstop.srv"
   DEPENDENCIES geometry_msgs std_msgs
 )
 
@@ -130,6 +129,13 @@ add_executable(global_planner_node
 target_include_directories(global_planner_node PRIVATE include)
 ament_target_dependencies(global_planner_node geometry_msgs nav_msgs rclcpp std_msgs)
 
+add_executable(tracking_follower_node
+  src/tracking_follower_node.cpp
+)
+target_include_directories(tracking_follower_node PRIVATE include)
+ament_target_dependencies(tracking_follower_node geometry_msgs rclcpp std_msgs)
+target_link_libraries(tracking_follower_node "${cpp_typesupport_target}")
+
 install(TARGETS
   ai_detection_node
   autonomy_manager_node
@@ -137,6 +143,7 @@ install(TARGETS
   elevation_mapping_node
   global_planner_node
   rl_local_planner_node
+  tracking_follower_node
   vio_pose_adapter_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -152,6 +159,7 @@ install(DIRECTORY docs
 install(PROGRAMS
   scripts/build.sh
   scripts/build_realsense_driver.sh
+  scripts/launch.sh
   scripts/generate_realsense_mapping_from_urdf.py
   scripts/generate_height_filter_from_urdf.py
   scripts/realsense_usb_mapper.py

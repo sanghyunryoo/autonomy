@@ -95,19 +95,9 @@ ros2 service call /autonomy_manager/set_mode height_map_ros2/srv/SetAutonomyMode
 "{operation_mode: 'ADAS', speed_limit: 0.8, enable_ai: true, segmentation: false}"
 ```
 
-Trigger ESTOP:
-
-```bash
-ros2 service call /autonomy_manager/set_estop height_map_ros2/srv/SetEstop \
-"{active: true, reason: 'operator'}"
-```
-
-Clear ESTOP and restore the previously requested mode:
-
-```bash
-ros2 service call /autonomy_manager/set_estop height_map_ros2/srv/SetEstop \
-"{active: false, reason: 'operator'}"
-```
+ESTOP is derived from `/robot_report`. `physical_estop` or `comm_estop` forces
+the effective autonomy mode to `IDLE`; clearing both restores the previously
+requested mode.
 
 Monitor the manager status:
 
@@ -165,7 +155,7 @@ it is `true`. If no height map is available, both fields default to `true`.
 The autonomy manager subscribes to `/robot_report` as
 `height_map_ros2/msg/RobotReport`. `physical_estop` or `comm_estop` forces the
 effective autonomy mode to `IDLE`; clearing the report ESTOP restores the
-previously requested mode unless operator ESTOP is still active. `comm_fault`
+previously requested mode. `comm_fault`
 marks autonomy status degraded/error and is reflected in `/autonomy_manager/status`.
 
 For normal robot state tracking, `/robot_report` controls only the `IDLE`/`DRIVE`

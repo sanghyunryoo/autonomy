@@ -385,7 +385,8 @@ bool PointCloudMergerNode::processingActive() const
   return autonomy_mode_ == height_map_ros2::msg::AutonomyState::DRIVE ||
     autonomy_mode_ == height_map_ros2::msg::AutonomyState::ADAS ||
     autonomy_mode_ == height_map_ros2::msg::AutonomyState::FSD ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::MAPPING;
+    autonomy_mode_ == height_map_ros2::msg::AutonomyState::MAPPING ||
+    autonomy_mode_ == height_map_ros2::msg::AutonomyState::TRACKING;
 }
 
 void PointCloudMergerNode::onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg)
