@@ -288,7 +288,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--urdf",
         type=Path,
-        default=root / "urdf" / "f16.urdf",
+        default=root / "resources" / "urdf" / "f16.urdf",
         help="Path to the robot URDF.",
     )
     parser.add_argument(

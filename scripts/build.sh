@@ -4,14 +4,14 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./build.sh <x86_64|aarch64> [--clean] [-- <extra colcon args>]
+  ./scripts/build.sh <x86_64|aarch64> [--clean] [-- <extra colcon args>]
 
 Examples:
-  ./build.sh x86_64
-  ./build.sh aarch64
-  ./build.sh x86_64 --clean
-  CMAKE_TOOLCHAIN_FILE=/path/to/aarch64-toolchain.cmake ./build.sh aarch64
-  ./build.sh x86_64 -- --event-handlers console_direct+
+  ./scripts/build.sh x86_64
+  ./scripts/build.sh aarch64
+  ./scripts/build.sh x86_64 --clean
+  CMAKE_TOOLCHAIN_FILE=/path/to/aarch64-toolchain.cmake ./scripts/build.sh aarch64
+  ./scripts/build.sh x86_64 -- --event-handlers console_direct+
 
 Environment:
   ROS_DISTRO             ROS 2 distro to source. Default: humble
@@ -111,7 +111,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-workspace_dir="$(cd "${script_dir}/../.." && pwd)"
+package_dir="$(cd "${script_dir}/.." && pwd)"
+workspace_dir="$(cd "${package_dir}/../.." && pwd)"
 package_name="height_map_ros2"
 
 ros_distro="${ROS_DISTRO:-humble}"
@@ -121,11 +122,11 @@ ros_setup="/opt/ros/${ros_distro}/setup.bash"
 ort_version="${ONNXRUNTIME_VERSION:-1.18.1}"
 case "${target_arch}" in
   x86_64)
-    ort_dir="${script_dir}/third_party/onnxruntime"
+    ort_dir="${package_dir}/third_party/onnxruntime"
     ort_asset_arch="x64"
     ;;
   aarch64)
-    ort_dir="${script_dir}/third_party/onnxruntime-aarch64"
+    ort_dir="${package_dir}/third_party/onnxruntime-aarch64"
     ort_asset_arch="aarch64"
     ;;
 esac
@@ -152,11 +153,11 @@ ensure_onnxruntime() {
 
 clean_third_party_build_artifacts() {
   echo "Cleaning third-party source-tree build artifacts..."
-  rm -rf "${script_dir}/third_party/open_vins/build"
+  rm -rf "${package_dir}/third_party/open_vins/build"
 }
 
 ensure_openvins() {
-  local third_party_openvins="${script_dir}/third_party/open_vins"
+  local third_party_openvins="${package_dir}/third_party/open_vins"
   local workspace_openvins="${workspace_dir}/src/open_vins"
 
   if [[ ! -f "${third_party_openvins}/ov_msckf/package.xml" && -f "${workspace_openvins}/ov_msckf/package.xml" && ! -L "${workspace_openvins}" ]]; then

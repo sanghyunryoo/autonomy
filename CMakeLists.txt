@@ -141,7 +141,7 @@ install(TARGETS
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY config launch
+install(DIRECTORY launch resources
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -149,23 +149,9 @@ install(DIRECTORY docs
   DESTINATION share/${PROJECT_NAME}
 )
 
-install(DIRECTORY weights
-  DESTINATION share/${PROJECT_NAME}
-)
-
-install(DIRECTORY map
-  DESTINATION share/${PROJECT_NAME}
-)
-
-install(DIRECTORY idl
-  DESTINATION share/${PROJECT_NAME}
-)
-
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/urdf
-  DESTINATION share/${PROJECT_NAME}
-)
-
 install(PROGRAMS
+  scripts/build.sh
+  scripts/build_realsense_driver.sh
   scripts/generate_realsense_mapping_from_urdf.py
   scripts/generate_height_filter_from_urdf.py
   scripts/realsense_usb_mapper.py

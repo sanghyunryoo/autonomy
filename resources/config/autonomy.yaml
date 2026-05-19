@@ -103,7 +103,7 @@ stream:
 pointcloud_merge_node:
   ros__parameters:
     target_frame: 4w4l/base_link
-    urdf_path: src/height_map_ros2/urdf/f16.urdf
+    urdf_path: src/height_map_ros2/resources/urdf/f16.urdf
     static_tf_frame_prefix: "4w4l/"
     publish_rate_hz: 20.0
     max_cloud_age_sec: 0.0
@@ -220,7 +220,7 @@ autonomy_manager:
     startup_mode: IDLE
     pose_topic: /odomimu
     robot_report_topic: /robot_report
-    map_dir: src/height_map_ros2/map
+    map_dir: src/height_map_ros2/resources/map
     speed_limit: 0.0
     enable_ai: false
     segmentation: false
@@ -247,7 +247,7 @@ rl_local_planner_node:
 ai_detection_node:
   ros__parameters:
     enabled: true
-    model_path: src/height_map_ros2/weights/yolo11n_640x480x3.onnx
+    model_path: src/height_map_ros2/resources/weights/yolo11n_640x480x3.onnx
     # Input topics are overridden by launch from camera_bindings in this file.
     image_topic: /robot_4w4l/adas_camera/rgb/image_raw
     camera_info_topic: /robot_4w4l/adas_camera/rgb/camera_info
@@ -264,7 +264,7 @@ ai_detection_node:
 openvins_vio_node:
   ros__parameters:
     enabled: true
-    settings_config: src/height_map_ros2/config/openvins.yaml
+    settings_config: src/height_map_ros2/resources/config/openvins.yaml
     settings_profile_real: real
     settings_profile_simulation: simulation
     verbosity: INFO

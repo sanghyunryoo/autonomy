@@ -52,7 +52,7 @@ source install/setup.bash
 ## Run
 
 The autonomy stack is launched from a single launch file and a single parameter
-file, `config/autonomy.yaml`. On startup the stack stays in `IDLE`; change modes
+file, `resources/config/autonomy.yaml`. On startup the stack stays in `IDLE`; change modes
 at runtime with `/autonomy_manager/set_mode`.
 
 Simulation:
@@ -68,7 +68,7 @@ ros2 launch height_map_ros2 autonomy.launch.py simulation:=false
 ```
 
 Keep USB port bindings, camera topic bindings, merge settings, elevation tuning,
-SLAM, AI, planner, and manager parameters in `config/autonomy.yaml`. For
+SLAM, AI, planner, and manager parameters in `resources/config/autonomy.yaml`. For
 hardware, first identify the board port ids:
 
 ```bash
@@ -79,7 +79,7 @@ ros2 run height_map_ros2 show_realsense_usb_ports.py
 
 Each connected RealSense color image is displayed with its `usb_port_id`, serial,
 and model overlaid. Plug a camera into each board port, note the reported
-`usb_port_id`, then edit `config/autonomy.yaml`. After that, any
+`usb_port_id`, then edit `resources/config/autonomy.yaml`. After that, any
 camera plugged into that physical port is mapped to the configured role while
 `enabled` still controls whether the role is used.
 
@@ -118,7 +118,7 @@ ros2 topic echo /autonomy_manager/status
 ## Localization
 
 The autonomy launch uses OpenVINS `ov_msckf` for stereo-inertial VIO instead of
-building ORB-SLAM3 in this package. `build.sh` prepares `src/open_vins` when it
+building ORB-SLAM3 in this package. `scripts/build.sh` prepares `src/open_vins` when it
 is missing and builds `ov_msckf` together with `height_map_ros2`.
 
 OpenVINS publishes odometry on `/odomimu`. The local
@@ -128,7 +128,7 @@ OpenVINS publishes odometry on `/odomimu`. The local
 
 ## DDS output
 
-The DDS-facing IDL is installed as `share/height_map_ros2/idl/HeightMap.idl`:
+The DDS-facing IDL is installed as `share/height_map_ros2/resources/idl/HeightMap.idl`:
 
 ```idl
 module core_dds {

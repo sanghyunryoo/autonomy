@@ -459,13 +459,13 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "autonomy_config",
-            default_value=str(package_share / "config" / "autonomy.yaml"),
+            default_value=str(package_share / "resources" / "config" / "autonomy.yaml"),
             description="Single autonomy stack parameter file.",
         ),
         DeclareLaunchArgument("simulation", default_value="false"),
         DeclareLaunchArgument(
             "map_dir",
-            default_value=str(package_share / "map"),
+            default_value=str(package_share / "resources" / "map"),
             description="Directory containing the global map required by FSD mode.",
         ),
         OpaqueFunction(function=_make_stack),

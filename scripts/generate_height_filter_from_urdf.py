@@ -30,7 +30,7 @@ Usage:
 
 Optional:
   python3 generate_height_filter_from_urdf.py \
-    --output-dir src/height_map_ros2/height_map_ros2/sensors
+    --output-dir src/height_map_ros2/resources/sensors
 """
 
 import argparse
@@ -1058,17 +1058,17 @@ def parse_args():
 
     parser.add_argument(
         "--mapping-file",
-        default=str(root / "config" / "autonomy.yaml"),
+        default=str(root / "resources" / "config" / "autonomy.yaml"),
         help="Camera binding YAML path.",
     )
     parser.add_argument(
         "--urdf",
-        default=str(root / "urdf" / "f16.urdf"),
+        default=str(root / "resources" / "urdf" / "f16.urdf"),
         help="Robot URDF path.",
     )
     parser.add_argument(
         "--elevation-config",
-        default=str(root / "config" / "autonomy.yaml"),
+        default=str(root / "resources" / "config" / "autonomy.yaml"),
         help="Elevation mapping YAML path used to print a matching IsaacLab GridPatternCfg example.",
     )
     parser.add_argument(
@@ -1079,7 +1079,7 @@ def parse_args():
 
     parser.add_argument(
         "--output-dir",
-        default=str(root / "sensors"),
+        default=str(root / "resources" / "sensors"),
         help="Directory where ray_caster_fov.py and ray_caster_fov_cfg.py will be written.",
     )
 
@@ -1173,7 +1173,7 @@ def main():
 
     print("")
     print("Use in IsaacLab config:")
-    print(f"  from <your_package>.sensors.{module_name}_cfg import RayCasterFOVCfg")
+    print(f"  from <your_package>.resources.sensors.{module_name}_cfg import RayCasterFOVCfg")
     print("")
     print("  # Matched to autonomy.yaml height_map grid:")
     print(

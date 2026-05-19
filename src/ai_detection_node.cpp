@@ -116,7 +116,7 @@ public:
     declare_parameter<bool>("enabled", true);
     declare_parameter<std::string>(
       "model_path",
-      "/root/ros2_ws/src/height_map_ros2/weights/yolo11n_640x480x3.onnx");
+      "/root/ros2_ws/src/height_map_ros2/resources/weights/yolo11n_640x480x3.onnx");
     declare_parameter<std::string>("image_topic", "/adas_camera/color/image_raw");
     declare_parameter<std::string>("camera_info_topic", "/adas_camera/color/camera_info");
     declare_parameter<std::string>("depth_topic", "/adas_camera/depth/image_rect_raw");
