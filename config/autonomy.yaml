@@ -121,7 +121,7 @@ elevation_mapping_node:
     output_image_topic: ~/elevation_image
     output_cloud_topic: ~/elevation_points
     output_masked_height_scan_topic: ~/masked_height_scan
-    command_filter_service_name: ~/command_filter
+    command_filter_topic: /command_filter
     operation_mode: adas
     respect_autonomy_mode: true
     autonomy_status_topic: /autonomy_manager/status
@@ -143,7 +143,7 @@ elevation_mapping_node:
       max_z: 0.50
 
     local_terrain_map:
-      enabled: true
+      enabled: false
       output_image_topic: ~/local_terrain_image
       output_cloud_topic: ~/local_terrain_points
       output_scan_topic: ~/local_terrain_map
@@ -211,11 +211,15 @@ elevation_mapping_node:
       obstacle_height_threshold: 0.25
       forward_lateral_half_width: 0.25
       right_longitudinal_half_width: 0.25
+      forward_distance: 0.8
+      lateral_distance: 0.55
+      publish_rate_hz: 10.0
 
 autonomy_manager:
   ros__parameters:
     startup_mode: IDLE
     pose_topic: /odomimu
+    robot_report_topic: /robot_report
     map_dir: src/height_map_ros2/map
     speed_limit: 0.0
     enable_ai: false
@@ -237,6 +241,7 @@ rl_local_planner_node:
     target_pose_topic: /planning/target_pose
     height_scan_topic: /elevation_mapping_node/local_terrain_map
     cmd_vel_topic: /cmd_vel
+    autonomy_status_topic: /autonomy_manager/status
     publish_rate_hz: 20.0
 
 ai_detection_node:

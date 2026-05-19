@@ -3,7 +3,6 @@ uint8 DRIVE=1
 uint8 ADAS=2
 uint8 FSD=3
 uint8 MAPPING=4
-uint8 ERROR=5
 
 string operation_mode
 float32 speed_limit
@@ -15,4 +14,3 @@ uint8 current_mode
 bool enable_ai
 bool segmentation
 string message
-

@@ -1,0 +1,10 @@
+uint8 robot_state
+string robot_state_name
+bool physical_estop
+bool comm_estop
+bool comm_fault
+string error_reason
+string[] motor_pattern
+string[] motor_err
+string battery_voltage
+string battery_soc

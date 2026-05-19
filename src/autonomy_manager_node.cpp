@@ -17,6 +17,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include "height_map_ros2/msg/autonomy_state.hpp"
+#include "height_map_ros2/msg/robot_report.hpp"
 #include "height_map_ros2/srv/set_autonomy_mode.hpp"
 #include "height_map_ros2/srv/set_estop.hpp"
 
@@ -84,7 +85,29 @@ bool validModeText(const std::string & text)
 {
   const auto value = upper(text);
   return value == "IDLE" || value == "DRIVE" || value == "ADAS" || value == "FSD" ||
-         value == "MAPPING" || value == "ERROR";
+         value == "MAPPING";
+}
+
+bool reportRequestsDrive(const std::uint8_t state, const std::string & name)
+{
+  const auto value = upper(name);
+  return (state >= 2 && state <= 6) ||
+         value == "READY" ||
+         value == "STAND" ||
+         value == "FLAT_DRIVE" ||
+         value == "ROUGH_DRIVE" ||
+         value == "CUSTOM_DRIVE";
+}
+
+bool reportRequestsIdle(const std::uint8_t state, const std::string & name)
+{
+  const auto value = upper(name);
+  return state == 0 || state == 1 || state == 7 || state == 8 || state == 9 ||
+         value == "IDLE" ||
+         value == "INIT" ||
+         value == "FREEZE" ||
+         value == "SIT" ||
+         value == "LIE";
 }
 
 struct NodeStatus
@@ -111,6 +134,7 @@ public:
   {
     declare_parameter<std::string>("startup_mode", "IDLE");
     declare_parameter<std::string>("pose_topic", "/odomimu");
+    declare_parameter<std::string>("robot_report_topic", "/robot_report");
     declare_parameter<std::string>("map_dir", "");
     declare_parameter<double>("speed_limit", 0.0);
     declare_parameter<bool>("enable_ai", false);
@@ -185,6 +209,12 @@ public:
         latest_velocity_ = msg->twist.twist;
         has_pose_ = true;
       });
+    robot_report_sub_ = create_subscription<height_map_ros2::msg::RobotReport>(
+      get_parameter("robot_report_topic").as_string(),
+      10,
+      [this](height_map_ros2::msg::RobotReport::SharedPtr msg) {
+        onRobotReport(std::move(msg));
+      });
 
     state_pub_ = create_publisher<AutonomyStateMsg>("~/state", 10);
     status_pub_ = create_publisher<AutonomyStateMsg>("~/status", 10);
@@ -225,6 +255,8 @@ private:
     }
 
     const auto requested_mode = parseMode(request->operation_mode);
+    const bool report_controlled_mode =
+      requested_mode == AutonomyStateMsg::IDLE || requested_mode == AutonomyStateMsg::DRIVE;
 
     if (requested_mode == AutonomyStateMsg::FSD && !mapReady()) {
       response->accepted = false;
@@ -239,7 +271,7 @@ private:
     requested_segmentation_enabled_ = request->segmentation;
 
     if (!estop_active_) {
-      applyRequestedMode();
+      applyRequestedMode(report_controlled_mode);
       response->message = "Mode changed to " + modeName(mode_);
       RCLCPP_INFO(
         get_logger(),
@@ -257,8 +289,8 @@ private:
         boolText(requested_segmentation_enabled_).c_str());
     }
 
-    error_code_ = estop_active_ ? 2001 : 0;
-    error_active_ = !estop_active_ && mode_ == AutonomyStateMsg::ERROR;
+    error_code_ = estop_active_ ? 2001 : (comm_fault_ ? 3001 : 0);
+    error_active_ = !estop_active_ && (mode_ == AutonomyStateMsg::ERROR || comm_fault_);
     response->accepted = true;
     response->current_mode = mode_;
     response->enable_ai = ai_enabled_;
@@ -270,27 +302,20 @@ private:
     std::shared_ptr<height_map_ros2::srv::SetEstop::Response> response)
   {
     if (request->active) {
-      if (!estop_active_) {
-        requested_mode_ = mode_;
-        requested_speed_limit_ = speed_limit_;
-        requested_ai_enabled_ = ai_enabled_;
-        requested_segmentation_enabled_ = segmentation_enabled_;
-      }
-      estop_active_ = true;
-      mode_ = AutonomyStateMsg::IDLE;
-      speed_limit_ = 0.0F;
-      ai_enabled_ = false;
-      segmentation_enabled_ = false;
-      error_code_ = 2001;
-      error_active_ = false;
+      operator_estop_active_ = true;
+      forceIdleForEstop();
       response->message = "ESTOP active; effective mode forced to IDLE";
     } else {
-      estop_active_ = false;
-      applyRequestedMode();
-      error_code_ = 0;
-      error_active_ = mode_ == AutonomyStateMsg::ERROR;
-      response->message = "ESTOP cleared; restored mode " + modeName(mode_);
+      operator_estop_active_ = false;
+      if (robot_estop_active_) {
+        forceIdleForEstop();
+        response->message = "Operator ESTOP cleared; robot ESTOP is still active";
+      } else {
+        restoreRequestedModeAfterEstop();
+        response->message = "ESTOP cleared; restored mode " + modeName(mode_);
+      }
     }
+    estop_active_ = operator_estop_active_ || robot_estop_active_;
 
     response->accepted = true;
     response->estop_active = estop_active_;
@@ -302,6 +327,39 @@ private:
       request->reason.c_str(),
       modeName(mode_).c_str(),
       modeName(requested_mode_).c_str());
+  }
+
+  void onRobotReport(height_map_ros2::msg::RobotReport::SharedPtr msg)
+  {
+    robot_state_ = msg->robot_state;
+    robot_state_name_ = msg->robot_state_name;
+    has_robot_report_ = true;
+    physical_estop_ = msg->physical_estop;
+    comm_estop_ = msg->comm_estop;
+    comm_fault_ = msg->comm_fault;
+    error_reason_ = msg->error_reason;
+
+    const bool next_robot_estop = physical_estop_ || comm_estop_;
+    if (next_robot_estop) {
+      robot_estop_active_ = true;
+      forceIdleForEstop();
+    } else if (robot_estop_active_) {
+      robot_estop_active_ = false;
+      if (operator_estop_active_) {
+        forceIdleForEstop();
+      } else {
+        restoreRequestedModeAfterEstop();
+      }
+    }
+    estop_active_ = operator_estop_active_ || robot_estop_active_;
+
+    if (comm_fault_ && error_reason_.empty()) {
+      error_reason_ = "robot communication fault";
+    }
+
+    if (!estop_active_ && reportControlsMode()) {
+      applyRobotReportMode();
+    }
   }
 
   void classifyNodes(
@@ -335,23 +393,31 @@ private:
     std::vector<std::string> inactive;
     std::vector<std::string> degraded;
     classifyNodes(active, inactive, degraded);
+    const bool internal_error_active = error_active_ || !degraded.empty() || comm_fault_;
+    const auto reported_mode = internal_error_active ? AutonomyStateMsg::ERROR : mode_;
 
     AutonomyStateMsg msg;
     msg.header.stamp = now();
-    msg.mode = mode_;
-    msg.mode_name = modeName(mode_);
+    msg.mode = reported_mode;
+    msg.mode_name = modeName(reported_mode);
     msg.autonomy_enabled = mode_ == AutonomyStateMsg::ADAS || mode_ == AutonomyStateMsg::FSD;
     msg.estop_active = estop_active_;
-    msg.error_active = error_active_ || !degraded.empty();
+    msg.error_active = internal_error_active;
     msg.ai_enabled = ai_enabled_;
     msg.segmentation_enabled = segmentation_enabled_;
+    msg.robot_state = robot_state_;
+    msg.robot_state_name = robot_state_name_;
+    msg.physical_estop = physical_estop_;
+    msg.comm_estop = comm_estop_;
+    msg.comm_fault = comm_fault_;
+    msg.error_reason = formatErrorReason(degraded);
     msg.speed_limit = speed_limit_;
-    msg.error_code = error_active_ ? std::max(error_code_, 1) : error_code_;
+    msg.error_code = msg.error_active ? std::max(error_code_, comm_fault_ ? 3001 : 1) : error_code_;
     if (has_pose_) {
       msg.pose = latest_pose_;
       msg.velocity = latest_velocity_;
     }
-    msg.status = degraded.empty() ? "ok" : "degraded";
+    msg.status = internal_error_active ? "error" : "ok";
     msg.active_nodes = active;
     msg.inactive_nodes = inactive;
     msg.degraded_nodes = degraded;
@@ -384,9 +450,15 @@ private:
         << " status=" << msg.status
         << " error_code=" << msg.error_code
         << " estop=" << boolText(msg.estop_active)
+        << " physical_estop=" << boolText(msg.physical_estop)
+        << " comm_estop=" << boolText(msg.comm_estop)
+        << " comm_fault=" << boolText(msg.comm_fault)
         << " ai=" << boolText(msg.ai_enabled)
         << " segmentation=" << boolText(msg.segmentation_enabled)
         << " speed_limit=" << std::setprecision(2) << msg.speed_limit << "\n";
+    out << "robot_state=" << static_cast<int>(msg.robot_state)
+        << " name=" << msg.robot_state_name
+        << " error_reason=" << msg.error_reason << "\n";
 
     out << std::setprecision(3)
         << "robot pose xyz=(" << msg.pose.position.x << ", " << msg.pose.position.y << ", "
@@ -432,6 +504,33 @@ private:
     }
   }
 
+  std::string formatErrorReason(const std::vector<std::string> & degraded) const
+  {
+    std::ostringstream out;
+    if (!error_reason_.empty()) {
+      out << error_reason_;
+    }
+    if (!degraded.empty()) {
+      if (!out.str().empty()) {
+        out << "; ";
+      }
+      out << "degraded nodes: ";
+      for (std::size_t i = 0; i < degraded.size(); ++i) {
+        const auto status_it = node_status_.find(degraded[i]);
+        const std::string status =
+          status_it == node_status_.end() ? "unknown" : status_it->second.status;
+        if (i > 0) {
+          out << ", ";
+        }
+        out << degraded[i] << "(" << status << ")";
+      }
+    }
+    if (comm_fault_ && out.str().empty()) {
+      out << "robot communication fault";
+    }
+    return out.str();
+  }
+
   std::vector<std::string> expectedNodesForCurrentMode() const
   {
     const auto expected_it = managed_nodes_.find(mode_);
@@ -451,12 +550,74 @@ private:
     return expected;
   }
 
-  void applyRequestedMode()
+  bool reportControlsMode() const
   {
+    return requested_mode_ == AutonomyStateMsg::IDLE || requested_mode_ == AutonomyStateMsg::DRIVE;
+  }
+
+  void applyRobotReportMode()
+  {
+    if (!has_robot_report_) {
+      mode_ = AutonomyStateMsg::IDLE;
+      speed_limit_ = 0.0F;
+      ai_enabled_ = false;
+      segmentation_enabled_ = false;
+      return;
+    }
+
+    if (reportRequestsDrive(robot_state_, robot_state_name_)) {
+      mode_ = AutonomyStateMsg::DRIVE;
+      speed_limit_ = requested_speed_limit_;
+      ai_enabled_ = false;
+      segmentation_enabled_ = requested_segmentation_enabled_;
+      return;
+    }
+
+    if (reportRequestsIdle(robot_state_, robot_state_name_)) {
+      mode_ = AutonomyStateMsg::IDLE;
+      speed_limit_ = 0.0F;
+      ai_enabled_ = false;
+      segmentation_enabled_ = false;
+      return;
+    }
+  }
+
+  void applyRequestedMode(const bool use_robot_report_for_drive_idle = true)
+  {
+    if (use_robot_report_for_drive_idle && reportControlsMode()) {
+      applyRobotReportMode();
+      return;
+    }
+
     mode_ = requested_mode_;
     speed_limit_ = requested_speed_limit_;
     ai_enabled_ = requested_ai_enabled_;
     segmentation_enabled_ = requested_segmentation_enabled_;
+  }
+
+  void forceIdleForEstop()
+  {
+    if (!estop_active_ && mode_ != AutonomyStateMsg::IDLE) {
+      requested_mode_ = mode_;
+      requested_speed_limit_ = speed_limit_;
+      requested_ai_enabled_ = ai_enabled_;
+      requested_segmentation_enabled_ = segmentation_enabled_;
+    }
+    estop_active_ = true;
+    mode_ = AutonomyStateMsg::IDLE;
+    speed_limit_ = 0.0F;
+    ai_enabled_ = false;
+    segmentation_enabled_ = false;
+    error_code_ = 2001;
+    error_active_ = false;
+  }
+
+  void restoreRequestedModeAfterEstop()
+  {
+    estop_active_ = false;
+    applyRequestedMode();
+    error_code_ = comm_fault_ ? 3001 : 0;
+    error_active_ = mode_ == AutonomyStateMsg::ERROR || comm_fault_;
   }
 
   bool mapReady() const
@@ -483,15 +644,24 @@ private:
   std::uint8_t mode_{AutonomyStateMsg::IDLE};
   std::uint8_t requested_mode_{AutonomyStateMsg::IDLE};
   bool estop_active_{false};
+  bool operator_estop_active_{false};
+  bool robot_estop_active_{false};
   bool error_active_{false};
   bool ai_enabled_{false};
   bool requested_ai_enabled_{false};
   bool segmentation_enabled_{false};
   bool requested_segmentation_enabled_{false};
   bool has_pose_{false};
+  bool has_robot_report_{false};
   float speed_limit_{0.0F};
   float requested_speed_limit_{0.0F};
   int error_code_{0};
+  std::uint8_t robot_state_{0};
+  std::string robot_state_name_;
+  bool physical_estop_{false};
+  bool comm_estop_{false};
+  bool comm_fault_{false};
+  std::string error_reason_;
   std::string map_dir_;
   geometry_msgs::msg::Pose latest_pose_;
   geometry_msgs::msg::Twist latest_velocity_;
@@ -499,6 +669,7 @@ private:
   std::unordered_map<std::string, NodeStatus> node_status_;
   std::vector<rclcpp::Subscription<std_msgs::msg::String>::SharedPtr> heartbeat_subs_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
+  rclcpp::Subscription<height_map_ros2::msg::RobotReport>::SharedPtr robot_report_sub_;
   rclcpp::Publisher<AutonomyStateMsg>::SharedPtr state_pub_;
   rclcpp::Publisher<AutonomyStateMsg>::SharedPtr status_pub_;
   rclcpp::Service<height_map_ros2::srv::SetAutonomyMode>::SharedPtr set_mode_srv_;

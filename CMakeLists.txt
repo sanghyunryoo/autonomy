@@ -33,10 +33,11 @@ find_package(tf2_ros REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AutonomyState.msg"
+  "msg/CommandFilter.msg"
   "msg/DetectedObject.msg"
   "msg/DetectedObjectArray.msg"
   "msg/MaskedHeightScan.msg"
-  "srv/CommandFilter.srv"
+  "msg/RobotReport.msg"
   "srv/SetAutonomyMode.srv"
   "srv/SetEstop.srv"
   DEPENDENCIES geometry_msgs std_msgs

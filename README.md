@@ -14,8 +14,8 @@ and producing a robot-centric elevation image.
   `~/elevation_image` (`sensor_msgs/Image`, `32FC1`), the ROS2
   `~/masked_height_scan`, and a DDS `core_dds::HeightMap` sample on
   `height_map`.
-- `srv/CommandFilter`: checks the latest height map for blocking obstacles in
-  the requested forward/right movement corridor.
+- `msg/CommandFilter`: publishes movement-axis allow/deny decisions from the
+  latest height map on `/command_filter`.
 - `HeightMapFrame`: internal model used to keep ROS2 and DDS output contracts
   separate.
 - `ElevationMapBackend`: algorithm boundary for elevation conversion.
@@ -151,6 +151,25 @@ The sample length follows the configured grid size, so it is not hard-coded to
 
 ## Command filter
 
-Call `~/command_filter` with `move_forward` and `move_right`. A response field is
-`false` when the latest height map contains an obstacle at least `0.25 m` above
-the configured robot floor in that movement corridor; otherwise it is `true`.
+The elevation node publishes `/command_filter` as `height_map_ros2/msg/CommandFilter`:
+
+- `allow_linear_vel_x`
+- `allow_linear_vel_y`
+
+A field is `false` when the latest height map contains an obstacle at least
+`0.25 m` above the configured robot floor in that movement corridor; otherwise
+it is `true`. If no height map is available, both fields default to `true`.
+
+## Robot Report
+
+The autonomy manager subscribes to `/robot_report` as
+`height_map_ros2/msg/RobotReport`. `physical_estop` or `comm_estop` forces the
+effective autonomy mode to `IDLE`; clearing the report ESTOP restores the
+previously requested mode unless operator ESTOP is still active. `comm_fault`
+marks autonomy status degraded/error and is reflected in `/autonomy_manager/status`.
+
+For normal robot state tracking, `/robot_report` controls only the `IDLE`/`DRIVE`
+autonomy modes. Robot states `READY`, `STAND`, `FLAT_DRIVE`, `ROUGH_DRIVE`, and
+`CUSTOM_DRIVE` (`robot_state` 2-6) select autonomy `DRIVE`. Robot states `IDLE`,
+`INIT`, `FREEZE`, `SIT`, and `LIE` (`robot_state` 0, 1, 7, 8, 9) select autonomy
+`IDLE`. `ADAS`, `FSD`, and `MAPPING` remain service-requested modes.

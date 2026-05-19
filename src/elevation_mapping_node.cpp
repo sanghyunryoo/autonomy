@@ -39,8 +39,8 @@ void ElevationMappingNode::loadParameters()
     throw std::invalid_argument("operation_mode must be one of: drive, adas, fsd");
   }
 
-  command_filter_service_name_ = declare_parameter<std::string>(
-    "command_filter_service_name", command_filter_service_name_);
+  command_filter_topic_ = declare_parameter<std::string>(
+    "command_filter_topic", command_filter_topic_);
   output_local_terrain_image_topic_ = declare_parameter<std::string>(
     "local_terrain_map.output_image_topic", output_local_terrain_image_topic_);
   output_local_terrain_cloud_topic_ = declare_parameter<std::string>(
@@ -102,6 +102,12 @@ void ElevationMappingNode::loadParameters()
     "command_filter.forward_lateral_half_width", forward_lateral_half_width_);
   right_longitudinal_half_width_ = declare_parameter<double>(
     "command_filter.right_longitudinal_half_width", right_longitudinal_half_width_);
+  command_filter_forward_distance_ = declare_parameter<double>(
+    "command_filter.forward_distance", command_filter_forward_distance_);
+  command_filter_lateral_distance_ = declare_parameter<double>(
+    "command_filter.lateral_distance", command_filter_lateral_distance_);
+  command_filter_publish_rate_hz_ = declare_parameter<double>(
+    "command_filter.publish_rate_hz", command_filter_publish_rate_hz_);
   fill_debug_outputs_ = declare_parameter<bool>("algorithm.fill_debug_outputs", fill_debug_outputs_);
   debug_fill_z_ = declare_parameter<double>("algorithm.debug_fill_z", debug_fill_z_);
 
@@ -168,9 +174,16 @@ void ElevationMappingNode::createIo()
     output_masked_height_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
     "/autonomy/heartbeat/elevation_mapping_node", 10);
+  command_filter_pub_ = create_publisher<height_map_ros2::msg::CommandFilter>(
+    command_filter_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile());
   heartbeat_timer_ = create_wall_timer(
     std::chrono::milliseconds(500),
     [this]() { publishHeartbeat(); });
+  const auto command_filter_period = std::chrono::duration<double>(
+    1.0 / std::max(1.0, command_filter_publish_rate_hz_));
+  command_filter_timer_ = create_wall_timer(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(command_filter_period),
+    [this]() { publishCommandFilter(); });
   if (local_terrain_map_enabled_) {
     local_terrain_image_pub_ = create_publisher<sensor_msgs::msg::Image>(
       output_local_terrain_image_topic_, 10);
@@ -179,14 +192,6 @@ void ElevationMappingNode::createIo()
     local_terrain_scan_pub_ = create_publisher<height_map_ros2::msg::MaskedHeightScan>(
       output_local_terrain_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   }
-  command_filter_srv_ = create_service<height_map_ros2::srv::CommandFilter>(
-    command_filter_service_name_,
-    [this](
-      const std::shared_ptr<height_map_ros2::srv::CommandFilter::Request> request,
-      std::shared_ptr<height_map_ros2::srv::CommandFilter::Response> response) {
-      onCommandFilter(request, response);
-    });
-
   if (dds_height_map_enabled_) {
     dds_height_map_pub_ = std::make_unique<DdsHeightMapPublisher>(
       static_cast<std::uint32_t>(std::max(0, dds_domain_id_)),
@@ -208,7 +213,7 @@ void ElevationMappingNode::createIo()
     get_logger(),
     "Publishing masked height scan: %s",
     output_masked_height_scan_topic_.c_str());
-  RCLCPP_INFO(get_logger(), "Serving command filter: %s", command_filter_service_name_.c_str());
+  RCLCPP_INFO(get_logger(), "Publishing command filter: %s", command_filter_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Operation mode: %s", operation_mode_.c_str());
   if (local_terrain_map_enabled_) {
     RCLCPP_INFO(
@@ -313,35 +318,47 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   }
 }
 
-void ElevationMappingNode::onCommandFilter(
-  const std::shared_ptr<height_map_ros2::srv::CommandFilter::Request> request,
-  std::shared_ptr<height_map_ros2::srv::CommandFilter::Response> response)
+void ElevationMappingNode::publishCommandFilter()
 {
+  const double forward_distance = command_filter_forward_distance_ > 0.0 ?
+    command_filter_forward_distance_ : std::max(0.0, grid_spec_.x_max);
+  const double lateral_distance = command_filter_lateral_distance_ > 0.0 ?
+    command_filter_lateral_distance_ : std::max(std::abs(grid_spec_.y_min), std::abs(grid_spec_.y_max));
+  command_filter_pub_->publish(evaluateCommandFilter(forward_distance, lateral_distance));
+}
+
+height_map_ros2::msg::CommandFilter ElevationMappingNode::evaluateCommandFilter(
+  const double move_forward,
+  const double move_right) const
+{
+  height_map_ros2::msg::CommandFilter result;
+  result.allow_linear_vel_x = true;
+  result.allow_linear_vel_y = true;
+
   HeightMapFrame frame;
   {
     std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
     if (!has_latest_height_map_) {
-      response->allow_move_forward = true;
-      response->allow_move_right = true;
-      return;
+      return result;
     }
     frame = latest_height_map_;
   }
 
-  const auto forward = static_cast<double>(request->move_forward);
-  const auto right = static_cast<double>(request->move_right);
-  response->allow_move_forward = isPathClear(
+  const auto forward = move_forward;
+  const auto right = move_right;
+  result.allow_linear_vel_x = isPathClear(
     frame,
     std::min(0.0, forward),
     std::max(0.0, forward),
     -forward_lateral_half_width_,
     forward_lateral_half_width_);
-  response->allow_move_right = isPathClear(
+  result.allow_linear_vel_y = isPathClear(
     frame,
     -right_longitudinal_half_width_,
     right_longitudinal_half_width_,
     std::min(0.0, right),
     std::max(0.0, right));
+  return result;
 }
 
 void ElevationMappingNode::fillDebugGrid(ElevationGrid & grid) const

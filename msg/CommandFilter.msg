@@ -1,0 +1,2 @@
+bool allow_linear_vel_x
+bool allow_linear_vel_y

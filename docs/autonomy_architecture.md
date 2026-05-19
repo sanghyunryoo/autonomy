@@ -26,7 +26,11 @@ for ROS launch and offline generation/utilities only.
 - ADAS: elevation stack plus front-camera AI detection.
 - FSD: elevation stack, AI detection, VIO, global planner, RL local planner.
 - MAPPING: elevation stack plus VIO/localization.
-- ERROR: no autonomous actuation.
+- ERROR: internal fault reporting state; it is not requested through
+  `/autonomy_manager/set_mode`.
+- IDLE/DRIVE effective mode follows `/robot_report`: robot states 2-6 map to
+  DRIVE and states 0, 1, 7, 8, 9 map to IDLE. ADAS/FSD/MAPPING are selected by
+  service request.
 - ESTOP is a safety latch, not an operation mode. When active, the effective mode
   is forced to IDLE to reduce board resource usage. Clearing ESTOP restores the
   previously requested mode.
@@ -40,6 +44,14 @@ Managed nodes publish heartbeat strings on:
 The manager publishes:
 
 `/autonomy_manager/state`
+
+The manager consumes robot safety status from:
+
+`/robot_report`
+
+Height-map command gating is published on:
+
+`/command_filter`
 
 Mode changes use:
 

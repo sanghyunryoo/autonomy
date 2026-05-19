@@ -13,6 +13,12 @@ bool estop_active
 bool error_active
 bool ai_enabled
 bool segmentation_enabled
+uint8 robot_state
+string robot_state_name
+bool physical_estop
+bool comm_estop
+bool comm_fault
+string error_reason
 float32 speed_limit
 int32 error_code
 geometry_msgs/Pose pose

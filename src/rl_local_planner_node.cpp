@@ -8,6 +8,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "height_map_ros2/msg/autonomy_state.hpp"
 #include "height_map_ros2/msg/masked_height_scan.hpp"
 
 namespace height_map_ros2
@@ -25,6 +26,7 @@ public:
     declare_parameter<std::string>("target_pose_topic", "/planning/target_pose");
     declare_parameter<std::string>("height_scan_topic", "/elevation_mapping_node/local_terrain_map");
     declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel");
+    declare_parameter<std::string>("autonomy_status_topic", "/autonomy_manager/status");
     declare_parameter<double>("publish_rate_hz", 20.0);
 
     enabled_ = get_parameter("enabled").as_bool();
@@ -50,6 +52,17 @@ public:
       [this](height_map_ros2::msg::MaskedHeightScan::SharedPtr msg) {
         latest_scan_ = std::move(msg);
       });
+    autonomy_sub_ = create_subscription<height_map_ros2::msg::AutonomyState>(
+      get_parameter("autonomy_status_topic").as_string(),
+      10,
+      [this](height_map_ros2::msg::AutonomyState::SharedPtr msg) {
+        autonomy_allows_command_ =
+          !msg->estop_active &&
+          !msg->error_active &&
+          (msg->mode == height_map_ros2::msg::AutonomyState::ADAS ||
+           msg->mode == height_map_ros2::msg::AutonomyState::FSD);
+        has_autonomy_state_ = true;
+      });
     cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>(
       get_parameter("cmd_vel_topic").as_string(),
       10);
@@ -71,6 +84,8 @@ private:
     std_msgs::msg::String heartbeat;
     if (!enabled_) {
       heartbeat.data = "disabled";
+    } else if (!has_autonomy_state_ || !autonomy_allows_command_) {
+      heartbeat.data = "standby:autonomy_blocked";
     } else if (has_current_pose_ && has_target_pose_ && latest_scan_) {
       heartbeat.data = model_path_.empty() ? "ready:no_model" : "ready";
       // TODO: Load ONNX Runtime session and publish action from current pose,
@@ -83,6 +98,8 @@ private:
   }
 
   bool enabled_{true};
+  bool has_autonomy_state_{false};
+  bool autonomy_allows_command_{false};
   bool has_current_pose_{false};
   bool has_target_pose_{false};
   std::string model_path_;
@@ -92,6 +109,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr current_pose_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr target_pose_sub_;
   rclcpp::Subscription<height_map_ros2::msg::MaskedHeightScan>::SharedPtr height_scan_sub_;
+  rclcpp::Subscription<height_map_ros2::msg::AutonomyState>::SharedPtr autonomy_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr timer_;

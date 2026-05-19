@@ -1,5 +1,0 @@
-float32 move_forward
-float32 move_right
----
-bool allow_move_forward
-bool allow_move_right

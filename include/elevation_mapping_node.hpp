@@ -14,8 +14,8 @@
 #include "elevation_map_backend.hpp"
 #include "height_map_model.hpp"
 #include "height_map_ros2/msg/autonomy_state.hpp"
+#include "height_map_ros2/msg/command_filter.hpp"
 #include "height_map_ros2/msg/masked_height_scan.hpp"
-#include "height_map_ros2/srv/command_filter.hpp"
 
 namespace height_map_ros2
 {
@@ -31,10 +31,11 @@ private:
   void publishHeartbeat();
   void onAutonomyState(height_map_ros2::msg::AutonomyState::SharedPtr msg);
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
-  void onCommandFilter(
-    const std::shared_ptr<height_map_ros2::srv::CommandFilter::Request> request,
-    std::shared_ptr<height_map_ros2::srv::CommandFilter::Response> response);
+  void publishCommandFilter();
   [[nodiscard]] bool processingActive() const;
+  [[nodiscard]] height_map_ros2::msg::CommandFilter evaluateCommandFilter(
+    double move_forward,
+    double move_right) const;
   void fillDebugGrid(ElevationGrid & grid) const;
   [[nodiscard]] sensor_msgs::msg::PointCloud2 gridToPointCloud(const ElevationGrid & grid) const;
   [[nodiscard]] bool isPathClear(
@@ -49,7 +50,7 @@ private:
   std::string output_cloud_topic_{"~/elevation_points"};
   std::string output_masked_height_scan_topic_{"~/masked_height_scan"};
   std::string operation_mode_{"drive"};
-  std::string command_filter_service_name_{"~/command_filter"};
+  std::string command_filter_topic_{"/command_filter"};
   std::string output_local_terrain_image_topic_{"~/local_terrain_image"};
   std::string output_local_terrain_cloud_topic_{"~/local_terrain_points"};
   std::string output_local_terrain_scan_topic_{"~/local_terrain_map"};
@@ -71,6 +72,9 @@ private:
   double obstacle_height_threshold_{0.25};
   double forward_lateral_half_width_{0.25};
   double right_longitudinal_half_width_{0.25};
+  double command_filter_forward_distance_{0.0};
+  double command_filter_lateral_distance_{0.0};
+  double command_filter_publish_rate_hz_{10.0};
   bool fill_debug_outputs_{true};
   double debug_fill_z_{0.0};
   std::chrono::steady_clock::time_point fps_window_start_;
@@ -88,8 +92,9 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr local_terrain_cloud_pub_;
   rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr local_terrain_scan_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
-  rclcpp::Service<height_map_ros2::srv::CommandFilter>::SharedPtr command_filter_srv_;
+  rclcpp::Publisher<height_map_ros2::msg::CommandFilter>::SharedPtr command_filter_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
+  rclcpp::TimerBase::SharedPtr command_filter_timer_;
   std::unique_ptr<ElevationMapBackend> elevation_backend_;
   std::unique_ptr<ElevationMapBackend> local_terrain_backend_;
   std::unique_ptr<DdsHeightMapPublisher> dds_height_map_pub_;
