@@ -298,7 +298,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=root / "config" / "camera_bindings.generated.yaml",
+        default=root / "resources" / "config" / "camera_bindings.generated.yaml",
         help="Output YAML path.",
     )
     parser.add_argument(

@@ -15,6 +15,36 @@ QUIET_WORKER_ROS_ARGS = ["--ros-args", "--log-level", "fatal"]
 STACK_MODE = "fsd"  # Keep every camera/node needed for runtime mode switching available.
 
 
+def _package_share_path():
+    return Path(get_package_share_directory(PACKAGE_NAME))
+
+
+def _resolve_package_path(value):
+    if not value:
+        return value
+    path = Path(str(value)).expanduser()
+    if path.is_absolute():
+        return str(path)
+
+    text = str(value)
+    source_prefix = f"src/{PACKAGE_NAME}/"
+    if text.startswith(source_prefix):
+        return str(_package_share_path() / text[len(source_prefix):])
+    if text.startswith("resources/"):
+        return str(_package_share_path() / text)
+    return text
+
+
+def _resolve_node_paths(params, keys):
+    if not isinstance(params, dict):
+        return params
+    resolved = params.copy()
+    for key in keys:
+        if key in resolved:
+            resolved[key] = _resolve_package_path(resolved[key])
+    return resolved
+
+
 def _parse_bool(value, default=True):
     if value is None:
         return default
@@ -197,6 +227,8 @@ def _merge_params(data, space):
     params["camera_names"] = camera_names
     params["cameras"] = cameras
     params["static_tf_frame_prefix"] = prefix
+    if "urdf_path" in params:
+        params["urdf_path"] = _resolve_package_path(params["urdf_path"])
     return params
 
 
@@ -265,7 +297,9 @@ def _write_openvins_yaml(path, data):
 
 def _openvins_profile(config_file, data, space):
     params = _node_params(data, "openvins_vio_node")
-    settings_config = str(params.get("settings_config") or Path(config_file).with_name("openvins.yaml"))
+    settings_config = _resolve_package_path(
+        str(params.get("settings_config") or Path(config_file).with_name("openvins.yaml"))
+    )
     profiles = _load_yaml(settings_config).get("profiles", {})
     if not isinstance(profiles, dict):
         raise RuntimeError(f"{settings_config} must define a 'profiles' dictionary")
@@ -421,7 +455,9 @@ def _make_stack(context, *args, **kwargs):
             ),
             _worker_node(
                 "ai_detection_node",
-                [_node_params(data, "ai_detection_node"), _ai_topic_params(data, space), use_sim_time],
+                [_resolve_node_paths(_node_params(data, "ai_detection_node"), ("model_path",)),
+                 _ai_topic_params(data, space),
+                 use_sim_time],
             ),
             _worker_node(
                 "rl_local_planner_node",
