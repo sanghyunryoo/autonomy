@@ -6,9 +6,9 @@
 #include <std_msgs/msg/header.hpp>
 
 #include "elevation_grid.hpp"
-#include "height_map_ros2/msg/masked_height_scan.hpp"
+#include "autonomy/msg/masked_height_scan.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 struct HeightMapFrame
@@ -32,9 +32,9 @@ struct DdsHeightMap
   double height_scan_offset,
   double base_height);
 
-[[nodiscard]] height_map_ros2::msg::MaskedHeightScan toRosMaskedHeightScan(
+[[nodiscard]] autonomy::msg::MaskedHeightScan toRosMaskedHeightScan(
   const HeightMapFrame & frame);
 
 [[nodiscard]] DdsHeightMap toDdsHeightMap(const HeightMapFrame & frame);
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

@@ -8,10 +8,10 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
-#include "height_map_ros2/msg/autonomy_state.hpp"
-#include "height_map_ros2/msg/masked_height_scan.hpp"
+#include "autonomy/msg/autonomy_state.hpp"
+#include "autonomy/msg/masked_height_scan.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 class RlLocalPlannerNode final : public rclcpp::Node
@@ -46,21 +46,21 @@ public:
         target_pose_ = *msg;
         has_target_pose_ = true;
       });
-    height_scan_sub_ = create_subscription<height_map_ros2::msg::MaskedHeightScan>(
+    height_scan_sub_ = create_subscription<autonomy::msg::MaskedHeightScan>(
       get_parameter("height_scan_topic").as_string(),
       10,
-      [this](height_map_ros2::msg::MaskedHeightScan::SharedPtr msg) {
+      [this](autonomy::msg::MaskedHeightScan::SharedPtr msg) {
         latest_scan_ = std::move(msg);
       });
-    autonomy_sub_ = create_subscription<height_map_ros2::msg::AutonomyState>(
+    autonomy_sub_ = create_subscription<autonomy::msg::AutonomyState>(
       get_parameter("autonomy_status_topic").as_string(),
       10,
-      [this](height_map_ros2::msg::AutonomyState::SharedPtr msg) {
+      [this](autonomy::msg::AutonomyState::SharedPtr msg) {
         autonomy_allows_command_ =
           !msg->estop_active &&
           !msg->error_active &&
-          (msg->mode == height_map_ros2::msg::AutonomyState::ADAS ||
-           msg->mode == height_map_ros2::msg::AutonomyState::FSD);
+          (msg->mode == autonomy::msg::AutonomyState::ADAS ||
+           msg->mode == autonomy::msg::AutonomyState::FSD);
         has_autonomy_state_ = true;
       });
     cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>(
@@ -105,22 +105,22 @@ private:
   std::string model_path_;
   geometry_msgs::msg::Pose2D current_pose_;
   geometry_msgs::msg::Pose2D target_pose_;
-  height_map_ros2::msg::MaskedHeightScan::SharedPtr latest_scan_;
+  autonomy::msg::MaskedHeightScan::SharedPtr latest_scan_;
   rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr current_pose_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr target_pose_sub_;
-  rclcpp::Subscription<height_map_ros2::msg::MaskedHeightScan>::SharedPtr height_scan_sub_;
-  rclcpp::Subscription<height_map_ros2::msg::AutonomyState>::SharedPtr autonomy_sub_;
+  rclcpp::Subscription<autonomy::msg::MaskedHeightScan>::SharedPtr height_scan_sub_;
+  rclcpp::Subscription<autonomy::msg::AutonomyState>::SharedPtr autonomy_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<height_map_ros2::RlLocalPlannerNode>());
+  rclcpp::spin(std::make_shared<autonomy::RlLocalPlannerNode>());
   rclcpp::shutdown();
   return 0;
 }

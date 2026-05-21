@@ -12,7 +12,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
-from height_map_ros2.msg import AutonomyState
+from autonomy.msg import AutonomyState
 
 
 def import_yaml_module():

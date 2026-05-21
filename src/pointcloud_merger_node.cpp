@@ -19,7 +19,7 @@
 #include <tf2/LinearMath/Vector3.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 PointCloudMergerNode::PointCloudMergerNode(const rclcpp::NodeOptions & options)
@@ -310,10 +310,10 @@ void PointCloudMergerNode::createIo()
   const auto input_qos = rclcpp::SensorDataQoS();
 
   if (respect_autonomy_mode_) {
-    autonomy_sub_ = create_subscription<height_map_ros2::msg::AutonomyState>(
+    autonomy_sub_ = create_subscription<autonomy::msg::AutonomyState>(
       autonomy_status_topic_,
       rclcpp::QoS(10),
-      [this](height_map_ros2::msg::AutonomyState::SharedPtr msg) {
+      [this](autonomy::msg::AutonomyState::SharedPtr msg) {
         onAutonomyState(std::move(msg));
       });
   }
@@ -368,7 +368,7 @@ void PointCloudMergerNode::publishHeartbeat()
   heartbeat_pub_->publish(msg);
 }
 
-void PointCloudMergerNode::onAutonomyState(height_map_ros2::msg::AutonomyState::SharedPtr msg)
+void PointCloudMergerNode::onAutonomyState(autonomy::msg::AutonomyState::SharedPtr msg)
 {
   autonomy_mode_ = msg->mode;
   has_autonomy_state_ = true;
@@ -382,11 +382,11 @@ bool PointCloudMergerNode::processingActive() const
   if (!has_autonomy_state_) {
     return false;
   }
-  return autonomy_mode_ == height_map_ros2::msg::AutonomyState::DRIVE ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::ADAS ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::FSD ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::MAPPING ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::TRACKING;
+  return autonomy_mode_ == autonomy::msg::AutonomyState::DRIVE ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::ADAS ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::FSD ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::MAPPING ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::TRACKING;
 }
 
 void PointCloudMergerNode::onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg)
@@ -676,4 +676,4 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
   return written > 0;
 }
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

@@ -1,34 +1,86 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+# Single build/setup entrypoint for autonomy.
+#
+# Simulation host:
+#   ./scripts/build.sh sim [--clean] [-- <extra colcon args>]
+#
+# Jetson hardware:
+#   ./scripts/build.sh jetson [options] [-- <extra colcon args>]
+#
+# Build-only compatibility:
+#   ./scripts/build.sh x86_64 [--clean] [-- <extra colcon args>]
+#   ./scripts/build.sh aarch64 [--clean] [-- <extra colcon args>]
 
 usage() {
   cat <<'EOF'
 Usage:
+  ./scripts/build.sh sim [--clean] [-- <extra colcon args>]
+  ./scripts/build.sh jetson [options] [-- <extra colcon args>]
   ./scripts/build.sh <x86_64|aarch64> [--clean] [-- <extra colcon args>]
 
-Examples:
-  ./scripts/build.sh x86_64
-  ./scripts/build.sh aarch64
-  ./scripts/build.sh x86_64 --clean
-  CMAKE_TOOLCHAIN_FILE=/path/to/aarch64-toolchain.cmake ./scripts/build.sh aarch64
-  ./scripts/build.sh x86_64 -- --event-handlers console_direct+
+Modes:
+  sim       Build autonomy for the current simulation/development machine.
+  jetson    Configure Jetson dependencies, build RealSense, then build autonomy.
+  x86_64    Build-only alias for sim target architecture.
+  aarch64   Build-only alias for Jetson target architecture.
+
+Common options:
+  --clean                    Remove previous build/install/log before building.
+  --setup-only               Run setup steps without building autonomy.
+  --skip-autonomy-build      Do not build autonomy after setup.
+  --workspace <path>         ROS workspace. Default: inferred workspace or $HOME/ros2_ws.
+  --ros-distro <name>        ROS 2 distro. Default: humble.
+  -- <args>                  Extra arguments passed to colcon build.
+
+Jetson setup options:
+  --with-desktop             Install ros-humble-desktop instead of ros-humble-ros-base.
+  --headless                 Skip graphical RealSense examples/viewer.
+  --no-cuda                  Build librealsense without CUDA acceleration.
+  --python                   Build pyrealsense2 Python bindings.
+  --skip-ros                 Do not install ROS 2 apt packages.
+  --skip-librealsense        Do not build/install librealsense.
+  --skip-realsense-ros       Do not clone/build realsense-ros.
+  --librealsense-ref <ref>   librealsense tag/branch/commit. Default: v2.57.7.
+  --librealsense-source-dir <path>
+                             librealsense source directory. Default: $HOME/librealsense.
+  --realsense-ros-ref <ref>  realsense-ros tag/branch/commit. Default: 4.57.7.
 
 Environment:
-  ROS_DISTRO             ROS 2 distro to source. Default: humble
-  PYTHON_EXECUTABLE      Python executable passed to CMake when set.
-  CMAKE_TOOLCHAIN_FILE   Optional CMake toolchain for cross compilation.
-  BUILD_TYPE             CMake build type. Default: Release
-  ONNXRUNTIME_VERSION    ONNX Runtime binary release. Default: 1.18.1
-  OPENVINS_REPO          OpenVINS git repository. Default: https://github.com/rpng/open_vins.git
-  OPENVINS_VERSION       OpenVINS git branch/tag/commit. Default: master
-  SKIP_OPENVINS_CLONE    Set to 1 when OpenVINS is already provided in third_party/open_vins.
-  ALLOW_CONDA_BUILD_ENV  Set to 1 to keep conda paths in the build environment.
+  ROS_DISTRO                 ROS 2 distro to source. Default: humble.
+  WORKSPACE_DIR              ROS workspace override.
+  PYTHON_EXECUTABLE          Python executable passed to CMake when set.
+  CMAKE_TOOLCHAIN_FILE       Optional CMake toolchain for cross compilation.
+  BUILD_TYPE                 CMake build type. Default: Release.
+  RUN_ROSDEP                 Set to 1 to run rosdep before build-only flows.
+  ONNXRUNTIME_VERSION        ONNX Runtime binary release. Default: 1.18.1.
+  OPENVINS_REPO              OpenVINS git repository. Default: https://github.com/rpng/open_vins.git.
+  OPENVINS_VERSION           OpenVINS git branch/tag/commit. Default: master.
+  SKIP_OPENVINS_CLONE        Set to 1 when OpenVINS is already in third_party/open_vins.
+  ALLOW_CONDA_BUILD_ENV      Set to 1 to keep conda paths in the build environment.
 EOF
 }
 
+log() {
+  printf '\n\033[1;32m[INFO]\033[0m %s\n' "$*"
+}
+
+warn() {
+  printf '\n\033[1;33m[WARN]\033[0m %s\n' "$*" >&2
+}
+
 die() {
-  echo "error: $*" >&2
+  printf '\n\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2
   exit 1
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+}
+
+apt_install() {
+  sudo apt-get install -y "$@"
 }
 
 drop_path_prefix() {
@@ -67,33 +119,126 @@ sanitize_conda_build_env() {
   export PATH CMAKE_PREFIX_PATH LD_LIBRARY_PATH LIBRARY_PATH PKG_CONFIG_PATH
 }
 
-if [[ $# -lt 1 ]]; then
-  usage
-  exit 2
-fi
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+package_dir="$(cd "${script_dir}/.." && pwd)"
+inferred_workspace_dir="$(cd "${package_dir}/../.." && pwd)"
 
-target_arch="$1"
+mode="${1:-}"
+if [[ -z "${mode}" || "${mode}" == "-h" || "${mode}" == "--help" ]]; then
+  usage
+  [[ -z "${mode}" ]] && exit 2 || exit 0
+fi
 shift
 
-case "${target_arch}" in
-  x86_64|aarch64) ;;
-  -h|--help)
-    usage
-    exit 0
+case "${mode}" in
+  sim)
+    target_arch="x86_64"
+    run_jetson_setup="OFF"
+    build_autonomy="ON"
+    ;;
+  jetson)
+    target_arch="aarch64"
+    run_jetson_setup="ON"
+    build_autonomy="ON"
+    ;;
+  x86_64|aarch64)
+    target_arch="${mode}"
+    run_jetson_setup="OFF"
+    build_autonomy="ON"
     ;;
   *)
     usage
-    die "unsupported build target '${target_arch}'"
+    die "unsupported mode '${mode}'"
     ;;
 esac
 
-clean=false
+ros_distro="${ROS_DISTRO:-humble}"
+workspace_dir="${WORKSPACE_DIR:-${inferred_workspace_dir}}"
+if [[ "${mode}" == "jetson" && -z "${WORKSPACE_DIR:-}" ]]; then
+  workspace_dir="${HOME}/ros2_ws"
+fi
+
+clean="OFF"
+install_ros="ON"
+install_ros_desktop="OFF"
+build_librealsense="ON"
+build_realsense_ros="ON"
+use_cuda="ON"
+build_graphical="ON"
+build_python="OFF"
+librealsense_ref="${LIBREALSENSE_REF:-v2.57.7}"
+librealsense_src_dir="${LIBREALSENSE_SRC_DIR:-${HOME}/librealsense}"
+realsense_ros_ref="${REALSENSE_ROS_REF:-4.57.7}"
+realsense_ros_repo="${REALSENSE_ROS_REPO:-https://github.com/realsenseai/realsense-ros.git}"
 extra_colcon_args=()
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --clean)
-      clean=true
+      clean="ON"
       shift
+      ;;
+    --setup-only)
+      run_jetson_setup="ON"
+      build_autonomy="OFF"
+      shift
+      ;;
+    --skip-autonomy-build)
+      build_autonomy="OFF"
+      shift
+      ;;
+    --workspace)
+      [[ $# -ge 2 ]] || die "--workspace requires a value"
+      workspace_dir="$2"
+      shift 2
+      ;;
+    --ros-distro)
+      [[ $# -ge 2 ]] || die "--ros-distro requires a value"
+      ros_distro="$2"
+      shift 2
+      ;;
+    --with-desktop)
+      install_ros_desktop="ON"
+      shift
+      ;;
+    --headless)
+      build_graphical="OFF"
+      shift
+      ;;
+    --no-cuda)
+      use_cuda="OFF"
+      shift
+      ;;
+    --python)
+      build_python="ON"
+      shift
+      ;;
+    --skip-ros)
+      install_ros="OFF"
+      shift
+      ;;
+    --skip-librealsense)
+      build_librealsense="OFF"
+      shift
+      ;;
+    --skip-realsense-ros)
+      build_realsense_ros="OFF"
+      shift
+      ;;
+    --librealsense-ref|--ref)
+      [[ $# -ge 2 ]] || die "$1 requires a value"
+      librealsense_ref="$2"
+      shift 2
+      ;;
+    --librealsense-source-dir|--source-dir)
+      [[ $# -ge 2 ]] || die "$1 requires a value"
+      librealsense_src_dir="$2"
+      shift 2
+      ;;
+    --realsense-ros-ref)
+      [[ $# -ge 2 ]] || die "--realsense-ros-ref requires a value"
+      realsense_ros_ref="$2"
+      shift 2
       ;;
     --)
       shift
@@ -110,37 +255,381 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-package_dir="$(cd "${script_dir}/.." && pwd)"
-workspace_dir="$(cd "${package_dir}/../.." && pwd)"
-package_name="height_map_ros2"
+if [[ "${run_jetson_setup}" == "ON" && "${mode}" != "jetson" ]]; then
+  warn "--setup-only is intended for Jetson setup; continuing with Jetson setup steps."
+fi
 
-ros_distro="${ROS_DISTRO:-humble}"
 ros_setup="/opt/ros/${ros_distro}/setup.bash"
-[[ -f "${ros_setup}" ]] || die "ROS setup file not found: ${ros_setup}"
 
-ort_version="${ONNXRUNTIME_VERSION:-1.18.1}"
-case "${target_arch}" in
-  x86_64)
-    ort_dir="${package_dir}/third_party/onnxruntime"
-    ort_asset_arch="x64"
-    ;;
-  aarch64)
-    ort_dir="${package_dir}/third_party/onnxruntime-aarch64"
-    ort_asset_arch="aarch64"
-    ;;
-esac
+check_jetson_platform() {
+  log "Checking Jetson platform"
+  echo "  uname -m: $(uname -m)"
+  echo "  uname -r: $(uname -r)"
+
+  if [[ "$(uname -m)" != "aarch64" ]]; then
+    warn "Expected aarch64. Jetson setup is intended for Jetson boards."
+  fi
+
+  if [[ -r /proc/device-tree/model ]]; then
+    local model
+    model="$(tr -d '\0' < /proc/device-tree/model)"
+    echo "  model: ${model}"
+    if [[ "${model}" != *"Jetson"* ]]; then
+      warn "Device model does not look like an NVIDIA Jetson board."
+    fi
+  else
+    warn "Could not read /proc/device-tree/model"
+  fi
+
+  if [[ -r /etc/nv_tegra_release ]]; then
+    log "Detected NVIDIA L4T information"
+    cat /etc/nv_tegra_release
+    if ! grep -q "R36" /etc/nv_tegra_release; then
+      warn "This script is tuned for Jetson Linux R36 / JetPack 6 class systems."
+    fi
+  else
+    warn "/etc/nv_tegra_release was not found."
+  fi
+
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    echo "  OS: ${PRETTY_NAME:-unknown}"
+    if [[ "${VERSION_ID:-}" != "22.04" ]]; then
+      warn "ROS 2 Humble on Jetson R36 normally uses Ubuntu 22.04."
+    fi
+  fi
+}
+
+setup_ros_apt_repo() {
+  log "Configuring ROS 2 apt repository"
+  apt_install software-properties-common curl gnupg lsb-release ca-certificates
+  sudo add-apt-repository universe -y
+  sudo mkdir -p /etc/apt/keyrings
+
+  if [[ ! -f /etc/apt/keyrings/ros-archive-keyring.gpg ]]; then
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key |
+      sudo gpg --dearmor -o /etc/apt/keyrings/ros-archive-keyring.gpg
+  fi
+
+  local codename
+  codename="$(. /etc/os-release && printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-jammy}}")"
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu ${codename} main" |
+    sudo tee /etc/apt/sources.list.d/ros2.list >/dev/null
+}
+
+install_system_packages() {
+  log "Installing system packages"
+  sudo apt-get update
+
+  apt_install \
+    software-properties-common \
+    curl \
+    gnupg \
+    lsb-release \
+    ca-certificates
+
+  sudo add-apt-repository universe -y
+  sudo apt-get update
+
+  apt_install \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    pkg-config \
+    python3-dev \
+    python3-pip \
+    python3-setuptools \
+    python3-wheel \
+    python3-numpy \
+    python3-opencv \
+    python3-yaml \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    libssl-dev \
+    libusb-1.0-0-dev \
+    libudev-dev \
+    libgtk-3-dev \
+    libglfw3-dev \
+    libgl1-mesa-dev \
+    libglu1-mesa-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libxi-dev \
+    libxrandr-dev \
+    libudev1 \
+    libtbb-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libdc1394-dev \
+    v4l-utils \
+    usbutils
+}
+
+install_ros_packages() {
+  if [[ "${install_ros}" != "ON" ]]; then
+    return
+  fi
+
+  setup_ros_apt_repo
+  sudo apt-get update
+
+  log "Installing ROS 2 ${ros_distro}"
+  if [[ "${install_ros_desktop}" == "ON" ]]; then
+    apt_install "ros-${ros_distro}-desktop"
+  else
+    apt_install "ros-${ros_distro}-ros-base"
+  fi
+
+  log "Installing ROS 2 packages used by autonomy"
+  apt_install \
+    "ros-${ros_distro}-ament-cmake" \
+    "ros-${ros_distro}-ament-lint-auto" \
+    "ros-${ros_distro}-ament-lint-common" \
+    "ros-${ros_distro}-cv-bridge" \
+    "ros-${ros_distro}-diagnostic-updater" \
+    "ros-${ros_distro}-geometry-msgs" \
+    "ros-${ros_distro}-image-transport" \
+    "ros-${ros_distro}-message-filters" \
+    "ros-${ros_distro}-nav-msgs" \
+    "ros-${ros_distro}-robot-state-publisher" \
+    "ros-${ros_distro}-rosidl-default-generators" \
+    "ros-${ros_distro}-rosidl-default-runtime" \
+    "ros-${ros_distro}-sensor-msgs" \
+    "ros-${ros_distro}-std-msgs" \
+    "ros-${ros_distro}-tf2" \
+    "ros-${ros_distro}-tf2-geometry-msgs" \
+    "ros-${ros_distro}-tf2-ros" \
+    "ros-${ros_distro}-xacro"
+
+  if ! rosdep db >/dev/null 2>&1; then
+    log "Initializing rosdep"
+    sudo rosdep init 2>/dev/null || true
+    rosdep update
+  fi
+}
+
+configure_cuda() {
+  if [[ "${use_cuda}" != "ON" ]]; then
+    return
+  fi
+
+  if command -v nvcc >/dev/null 2>&1; then
+    log "CUDA compiler detected from PATH"
+    nvcc --version | tail -n 4 || true
+  elif [[ -x /usr/local/cuda/bin/nvcc ]]; then
+    log "CUDA compiler detected at /usr/local/cuda/bin/nvcc"
+    export PATH="/usr/local/cuda/bin:${PATH}"
+    export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"
+    nvcc --version | tail -n 4 || true
+  else
+    warn "nvcc was not found. Building librealsense without CUDA."
+    use_cuda="OFF"
+  fi
+}
+
+build_librealsense_from_source() {
+  if [[ "${build_librealsense}" != "ON" ]]; then
+    return
+  fi
+
+  configure_cuda
+
+  if dpkg -l 2>/dev/null | awk '{print $2}' | grep -qE '^librealsense2'; then
+    warn "Existing librealsense2 Debian packages were found."
+    warn "Mixed apt/source installations can cause conflicts."
+    warn "If this build fails, remove old packages manually: sudo apt purge 'librealsense2*'"
+  fi
+
+  log "Preparing librealsense source: ${librealsense_src_dir}"
+  if [[ ! -d "${librealsense_src_dir}/.git" ]]; then
+    git clone https://github.com/realsenseai/librealsense.git "${librealsense_src_dir}"
+  fi
+
+  cd "${librealsense_src_dir}"
+  git fetch --tags --prune
+  git checkout "${librealsense_ref}"
+
+  log "Installing RealSense udev rules"
+  sudo ./scripts/setup_udev_rules.sh
+  sudo udevadm control --reload-rules || true
+  sudo udevadm trigger || true
+
+  local build_dir="${librealsense_src_dir}/build"
+  if [[ "${clean}" == "ON" ]]; then
+    log "Removing previous librealsense build directory: ${build_dir}"
+    rm -rf "${build_dir}"
+  fi
+
+  mkdir -p "${build_dir}"
+  cd "${build_dir}"
+
+  local cmake_args=(
+    ..
+    -DCMAKE_BUILD_TYPE=Release
+    -DFORCE_RSUSB_BACKEND=ON
+    -DBUILD_WITH_CUDA="${use_cuda}"
+    -DBUILD_EXAMPLES=ON
+    -DBUILD_GRAPHICAL_EXAMPLES="${build_graphical}"
+    -DBUILD_TOOLS=ON
+    -DBUILD_WITH_DDS=OFF
+    -DCHECK_FOR_UPDATES=OFF
+  )
+
+  if [[ "${build_python}" == "ON" ]]; then
+    cmake_args+=(
+      -DBUILD_PYTHON_BINDINGS=ON
+      -DPYTHON_EXECUTABLE="$(command -v python3)"
+    )
+  fi
+
+  log "Configuring librealsense"
+  cmake "${cmake_args[@]}"
+
+  local jobs
+  jobs="$(nproc)"
+  if [[ "${jobs}" -gt 1 ]]; then
+    jobs="$((jobs - 1))"
+  fi
+
+  log "Building librealsense with ${jobs} job(s)"
+  cmake --build . -j "${jobs}"
+
+  log "Installing librealsense"
+  sudo cmake --install .
+  sudo ldconfig
+}
+
+source_ros() {
+  [[ -f "${ros_setup}" ]] || die "ROS setup file not found: ${ros_setup}"
+  set +u
+  # shellcheck disable=SC1090
+  source "${ros_setup}"
+  set -u
+}
+
+build_realsense_ros_driver() {
+  if [[ "${build_realsense_ros}" != "ON" ]]; then
+    return
+  fi
+
+  source_ros
+
+  local src_dir="${workspace_dir}/src"
+  local repo_dir="${src_dir}/realsense-ros"
+  mkdir -p "${src_dir}"
+
+  log "Preparing realsense-ros source: ${repo_dir}"
+  if [[ ! -d "${repo_dir}/.git" ]]; then
+    git clone "${realsense_ros_repo}" "${repo_dir}"
+  fi
+
+  cd "${repo_dir}"
+  git fetch --tags --prune
+  git checkout "${realsense_ros_ref}"
+
+  if [[ "${clean}" == "ON" ]]; then
+    log "Removing previous realsense-ros build/install/log for selected workspace"
+    rm -rf "${workspace_dir}/build/realsense2_camera" \
+      "${workspace_dir}/build/realsense2_camera_msgs" \
+      "${workspace_dir}/install/realsense2_camera" \
+      "${workspace_dir}/install/realsense2_camera_msgs"
+  fi
+
+  log "Installing rosdep dependencies for realsense-ros"
+  cd "${workspace_dir}"
+  rosdep install --from-paths src/realsense-ros -i -y -r --rosdistro "${ros_distro}" || true
+
+  log "Building realsense-ros"
+  colcon build \
+    --symlink-install \
+    --packages-up-to realsense2_camera \
+    --cmake-args -DCMAKE_BUILD_TYPE=Release
+}
+
+ensure_workspace_link() {
+  local expected_link="${workspace_dir}/src/autonomy"
+  mkdir -p "${workspace_dir}/src"
+
+  if [[ "${expected_link}" == "${package_dir}" ]]; then
+    return
+  fi
+
+  if [[ ! -e "${expected_link}" ]]; then
+    log "Linking autonomy into workspace"
+    ln -s "${package_dir}" "${expected_link}"
+  fi
+}
+
+ensure_core_interface_package() {
+  local core_dir="${workspace_dir}/src/core"
+
+  if [[ -f "${core_dir}/package.xml" ]]; then
+    return
+  fi
+
+  log "Creating managed core interface package: ${core_dir}"
+  mkdir -p "${core_dir}/msg"
+
+  cat > "${core_dir}/package.xml" <<'EOF'
+<?xml version="1.0"?>
+<package format="3">
+  <name>core</name>
+  <version>0.1.0</version>
+  <description>Core ROS 2 interface package used by autonomy.</description>
+  <maintainer email="todo@example.com">core maintainer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+EOF
+
+  cat > "${core_dir}/CMakeLists.txt" <<'EOF'
+cmake_minimum_required(VERSION 3.16)
+
+project(core)
+
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/CommandFilter.msg"
+  "msg/RobotReport.msg"
+)
+
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()
+EOF
+
+  cp "${package_dir}/msg/CommandFilter.msg" "${core_dir}/msg/CommandFilter.msg"
+  cp "${package_dir}/msg/RobotReport.msg" "${core_dir}/msg/RobotReport.msg"
+}
 
 ensure_onnxruntime() {
+  local ort_dir="$1"
+  local ort_asset_arch="$2"
+  local ort_version="${ONNXRUNTIME_VERSION:-1.18.1}"
+
   if [[ -f "${ort_dir}/include/onnxruntime_cxx_api.h" && -f "${ort_dir}/lib/libonnxruntime.so" ]]; then
     return
   fi
 
-  mkdir -p "${ort_dir}" /tmp/height_map_ros2_onnxruntime
-  local archive="/tmp/height_map_ros2_onnxruntime/onnxruntime-linux-${ort_asset_arch}-${ort_version}.tgz"
+  mkdir -p "${ort_dir}" /tmp/autonomy_onnxruntime
+  local archive="/tmp/autonomy_onnxruntime/onnxruntime-linux-${ort_asset_arch}-${ort_version}.tgz"
   local url="https://github.com/microsoft/onnxruntime/releases/download/v${ort_version}/onnxruntime-linux-${ort_asset_arch}-${ort_version}.tgz"
 
-  echo "Downloading ONNX Runtime ${ort_version} for ${target_arch}..."
+  log "Downloading ONNX Runtime ${ort_version} for ${target_arch}"
   curl -L -o "${archive}" "${url}"
   tar --no-same-owner -xzf "${archive}" --strip-components=1 -C "${ort_dir}"
   touch "${ort_dir}/COLCON_IGNORE"
@@ -152,7 +641,7 @@ ensure_onnxruntime() {
 }
 
 clean_third_party_build_artifacts() {
-  echo "Cleaning third-party source-tree build artifacts..."
+  log "Cleaning third-party source-tree build artifacts"
   rm -rf "${package_dir}/third_party/open_vins/build"
 }
 
@@ -161,7 +650,7 @@ ensure_openvins() {
   local workspace_openvins="${workspace_dir}/src/open_vins"
 
   if [[ ! -f "${third_party_openvins}/ov_msckf/package.xml" && -f "${workspace_openvins}/ov_msckf/package.xml" && ! -L "${workspace_openvins}" ]]; then
-    echo "Moving existing workspace OpenVINS into ${third_party_openvins}..."
+    log "Moving existing workspace OpenVINS into ${third_party_openvins}"
     mkdir -p "$(dirname "${third_party_openvins}")"
     mv "${workspace_openvins}" "${third_party_openvins}"
   fi
@@ -173,7 +662,7 @@ ensure_openvins() {
 
     local repo="${OPENVINS_REPO:-https://github.com/rpng/open_vins.git}"
     local version="${OPENVINS_VERSION:-master}"
-    echo "Cloning OpenVINS ${version} into ${third_party_openvins}..."
+    log "Cloning OpenVINS ${version} into ${third_party_openvins}"
     git clone --recursive --branch "${version}" "${repo}" "${third_party_openvins}"
   fi
 
@@ -194,57 +683,160 @@ ensure_openvins() {
   ln -s "${third_party_openvins}" "${workspace_openvins}"
 }
 
-host_arch="$(uname -m)"
-if [[ "${host_arch}" != "${target_arch}" && -z "${CMAKE_TOOLCHAIN_FILE:-}" ]]; then
-  echo "warning: host arch is ${host_arch}, target is ${target_arch}, and CMAKE_TOOLCHAIN_FILE is not set." >&2
-  echo "warning: continuing as a native build; set CMAKE_TOOLCHAIN_FILE for cross compilation." >&2
-fi
+build_autonomy_package() {
+  if [[ "${build_autonomy}" != "ON" ]]; then
+    return
+  fi
 
-ensure_onnxruntime
-ensure_openvins
-sanitize_conda_build_env
+  local host_arch
+  host_arch="$(uname -m)"
+  if [[ "${host_arch}" != "${target_arch}" && -z "${CMAKE_TOOLCHAIN_FILE:-}" ]]; then
+    warn "host arch is ${host_arch}, target is ${target_arch}, and CMAKE_TOOLCHAIN_FILE is not set."
+    warn "Continuing as a native build; set CMAKE_TOOLCHAIN_FILE for cross compilation."
+  fi
 
-if [[ "${clean}" == true ]]; then
-  echo "Cleaning workspace build/install/log..."
-  rm -rf "${workspace_dir}/build" "${workspace_dir}/install" "${workspace_dir}/log"
-  clean_third_party_build_artifacts
-fi
+  local ort_dir
+  local ort_asset_arch
+  case "${target_arch}" in
+    x86_64)
+      ort_dir="${package_dir}/third_party/onnxruntime"
+      ort_asset_arch="x64"
+      ;;
+    aarch64)
+      ort_dir="${package_dir}/third_party/onnxruntime-aarch64"
+      ort_asset_arch="aarch64"
+      ;;
+    *)
+      die "unsupported build target '${target_arch}'"
+      ;;
+  esac
 
-set +u
-source "${ros_setup}"
-set -u
+  ensure_workspace_link
+  ensure_core_interface_package
+  ensure_onnxruntime "${ort_dir}" "${ort_asset_arch}"
+  ensure_openvins
+  sanitize_conda_build_env
+  source_ros
 
-cmake_args=(
-  -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
-  -DONNXRUNTIME_ROOT="${ort_dir}"
-  -DENABLE_ARUCO_TAGS=OFF
-  -DCMAKE_IGNORE_PREFIX_PATH="/root/miniconda3"
-)
+  if [[ "${clean}" == "ON" ]]; then
+    if [[ "${run_jetson_setup}" == "ON" ]]; then
+      log "Cleaning autonomy/OpenVINS build artifacts without removing RealSense install"
+      rm -rf "${workspace_dir}/build/autonomy" \
+        "${workspace_dir}/build/ov_core" \
+        "${workspace_dir}/build/ov_init" \
+        "${workspace_dir}/build/ov_msckf" \
+        "${workspace_dir}/install/autonomy" \
+        "${workspace_dir}/install/ov_core" \
+        "${workspace_dir}/install/ov_init" \
+        "${workspace_dir}/install/ov_msckf"
+    else
+      log "Cleaning workspace build/install/log"
+      rm -rf "${workspace_dir}/build" "${workspace_dir}/install" "${workspace_dir}/log"
+    fi
+    clean_third_party_build_artifacts
+  fi
 
-if [[ -n "${PYTHON_EXECUTABLE:-}" ]]; then
-  cmake_args+=(
-    -DPython3_EXECUTABLE="${PYTHON_EXECUTABLE}"
-    -DPYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
+  local cmake_args=(
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    -DONNXRUNTIME_ROOT="${ort_dir}"
+    -DENABLE_ARUCO_TAGS=OFF
+    -DCMAKE_IGNORE_PREFIX_PATH="/root/miniconda3"
   )
-else
-  cmake_args+=(
-    -DPython3_EXECUTABLE="/usr/bin/python3"
-    -DPYTHON_EXECUTABLE="/usr/bin/python3"
-  )
-fi
 
-if [[ -n "${CMAKE_TOOLCHAIN_FILE:-}" ]]; then
-  cmake_args+=(-DCMAKE_TOOLCHAIN_FILE="${CMAKE_TOOLCHAIN_FILE}")
-fi
+  if [[ -n "${PYTHON_EXECUTABLE:-}" ]]; then
+    cmake_args+=(
+      -DPython3_EXECUTABLE="${PYTHON_EXECUTABLE}"
+      -DPYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
+    )
+  else
+    cmake_args+=(
+      -DPython3_EXECUTABLE="/usr/bin/python3"
+      -DPYTHON_EXECUTABLE="/usr/bin/python3"
+    )
+  fi
 
-echo "Building ${package_name} for ${target_arch}"
-echo "Workspace: ${workspace_dir}"
-echo "ONNX Runtime: ${ort_dir}"
-echo "Python: ${PYTHON_EXECUTABLE:-/usr/bin/python3}"
+  if [[ -n "${CMAKE_TOOLCHAIN_FILE:-}" ]]; then
+    cmake_args+=(-DCMAKE_TOOLCHAIN_FILE="${CMAKE_TOOLCHAIN_FILE}")
+  fi
 
-cd "${workspace_dir}"
-colcon build \
-  --symlink-install \
-  --packages-up-to ov_msckf "${package_name}" \
-  "${extra_colcon_args[@]}" \
-  --cmake-args "${cmake_args[@]}"
+  log "Building autonomy for ${target_arch}"
+  echo "Workspace: ${workspace_dir}"
+  echo "ONNX Runtime: ${ort_dir}"
+  echo "Python: ${PYTHON_EXECUTABLE:-/usr/bin/python3}"
+
+  cd "${workspace_dir}"
+  if [[ "${run_jetson_setup}" == "ON" || "${RUN_ROSDEP:-0}" == "1" ]]; then
+    rosdep install --from-paths src -i -y -r --rosdistro "${ros_distro}" || true
+  fi
+  colcon build \
+    --symlink-install \
+    --packages-up-to ov_msckf autonomy \
+    "${extra_colcon_args[@]}" \
+    --cmake-args "${cmake_args[@]}"
+}
+
+run_jetson_setup_steps() {
+  require_cmd sudo
+  check_jetson_platform
+  install_system_packages
+  install_ros_packages
+  build_librealsense_from_source
+  build_realsense_ros_driver
+
+  log "USB topology"
+  lsusb || true
+  lsusb -t || true
+
+  log "Running RealSense device enumeration"
+  if command -v rs-enumerate-devices >/dev/null 2>&1; then
+    rs-enumerate-devices || true
+  else
+    warn "rs-enumerate-devices was not found in PATH."
+  fi
+}
+
+print_summary() {
+  if [[ "${mode}" != "jetson" && "${run_jetson_setup}" != "ON" ]]; then
+    return
+  fi
+
+  cat <<EOF
+
+Jetson flow finished.
+
+Recommended checks:
+  source /opt/ros/${ros_distro}/setup.bash
+  source ${workspace_dir}/install/setup.bash
+  rs-enumerate-devices
+  ros2 launch realsense2_camera rs_launch.py
+
+Build autonomy again:
+  ${workspace_dir}/src/autonomy/scripts/build.sh jetson --skip-ros --skip-librealsense --skip-realsense-ros
+
+If an older apt-based RealSense install conflicts:
+  sudo apt purge 'librealsense2*'
+  ${workspace_dir}/src/autonomy/scripts/build.sh jetson --clean
+EOF
+
+  if [[ "${build_python}" == "ON" ]]; then
+    cat <<'EOF'
+
+Python test:
+  python3 - <<'PY'
+import pyrealsense2 as rs
+print(rs.__version__)
+PY
+EOF
+  fi
+}
+
+main() {
+  if [[ "${run_jetson_setup}" == "ON" ]]; then
+    run_jetson_setup_steps
+  fi
+
+  build_autonomy_package
+  print_summary
+}
+
+main "$@"

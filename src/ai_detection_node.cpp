@@ -24,10 +24,10 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/string.hpp>
 
-#include "height_map_ros2/msg/detected_object.hpp"
-#include "height_map_ros2/msg/detected_object_array.hpp"
+#include "autonomy/msg/detected_object.hpp"
+#include "autonomy/msg/detected_object_array.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 namespace
@@ -116,7 +116,7 @@ public:
     declare_parameter<bool>("enabled", true);
     declare_parameter<std::string>(
       "model_path",
-      "/root/ros2_ws/src/height_map_ros2/resources/weights/yolo11n_640x480x3.onnx");
+      "/root/ros2_ws/src/autonomy/resources/weights/yolo11n_640x480x3.onnx");
     declare_parameter<std::string>("image_topic", "/adas_camera/color/image_raw");
     declare_parameter<std::string>("camera_info_topic", "/adas_camera/color/camera_info");
     declare_parameter<std::string>("depth_topic", "/adas_camera/depth/image_rect_raw");
@@ -165,7 +165,7 @@ public:
     annotated_pub_ = create_publisher<sensor_msgs::msg::Image>(
       get_parameter("annotated_image_topic").as_string(),
       10);
-    detections_pub_ = create_publisher<height_map_ros2::msg::DetectedObjectArray>(
+    detections_pub_ = create_publisher<autonomy::msg::DetectedObjectArray>(
       get_parameter("detections_topic").as_string(),
       10);
     heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
@@ -308,7 +308,7 @@ private:
         msg->height,
         detections.size());
     }
-    height_map_ros2::msg::DetectedObjectArray output;
+    autonomy::msg::DetectedObjectArray output;
     output.header = msg->header;
 
     for (const auto & detection : detections) {
@@ -324,7 +324,7 @@ private:
 
   void publishEmptyOutputs(const sensor_msgs::msg::Image & image, const cv::Mat & annotated)
   {
-    height_map_ros2::msg::DetectedObjectArray output;
+    autonomy::msg::DetectedObjectArray output;
     output.header = image.header;
     detections_pub_->publish(output);
     auto annotated_msg =
@@ -499,11 +499,11 @@ private:
     return detections;
   }
 
-  height_map_ros2::msg::DetectedObject toMessage(
+  autonomy::msg::DetectedObject toMessage(
     const Detection & detection,
     const sensor_msgs::msg::Image & image) const
   {
-    height_map_ros2::msg::DetectedObject object;
+    autonomy::msg::DetectedObject object;
     object.header = image.header;
     object.label = labelForClass(detection.class_id);
     object.confidence = detection.confidence;
@@ -518,7 +518,7 @@ private:
   void fill3dPosition(
     const cv::Rect & box,
     const cv::Size & image_size,
-    height_map_ros2::msg::DetectedObject & object) const
+    autonomy::msg::DetectedObject & object) const
   {
     if (!latest_depth_ || !latest_info_) {
       object.has_3d_position = false;
@@ -656,18 +656,18 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr annotated_pub_;
-  rclcpp::Publisher<height_map_ros2::msg::DetectedObjectArray>::SharedPtr detections_pub_;
+  rclcpp::Publisher<autonomy::msg::DetectedObjectArray>::SharedPtr detections_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
   rclcpp::TimerBase::SharedPtr diagnostic_timer_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<height_map_ros2::AiDetectionNode>());
+  rclcpp::spin(std::make_shared<autonomy::AiDetectionNode>());
   rclcpp::shutdown();
   return 0;
 }

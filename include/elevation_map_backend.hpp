@@ -4,7 +4,7 @@
 
 #include "elevation_grid.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 class ElevationMapBackend
@@ -17,4 +17,4 @@ public:
     const std_msgs::msg::Header & output_header) = 0;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

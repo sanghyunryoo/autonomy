@@ -25,7 +25,7 @@
 #include <fastdds/dds/topic/qos/TopicQos.hpp>
 #include <fastrtps/rtps/common/SerializedPayload.h>
 
-namespace height_map_ros2
+namespace autonomy
 {
 namespace
 {
@@ -246,4 +246,4 @@ void DdsHeightMapPublisher::cleanup()
   type_support_.reset();
 }
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

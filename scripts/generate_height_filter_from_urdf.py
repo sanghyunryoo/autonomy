@@ -30,7 +30,7 @@ Usage:
 
 Optional:
   python3 generate_height_filter_from_urdf.py \
-    --output-dir src/height_map_ros2/resources/sensors
+    --output-dir src/autonomy/resources/sensors
 """
 
 import argparse

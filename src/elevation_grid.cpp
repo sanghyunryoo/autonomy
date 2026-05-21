@@ -5,7 +5,7 @@
 #include <cstring>
 #include <stdexcept>
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 std::uint32_t GridSpec::width() const
@@ -50,4 +50,4 @@ sensor_msgs::msg::Image ElevationGrid::toImageMsg(const std::string & encoding) 
   return msg;
 }
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

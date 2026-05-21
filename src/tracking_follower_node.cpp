@@ -9,11 +9,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
-#include "height_map_ros2/msg/autonomy_state.hpp"
-#include "height_map_ros2/msg/detected_object.hpp"
-#include "height_map_ros2/msg/detected_object_array.hpp"
+#include "autonomy/msg/autonomy_state.hpp"
+#include "autonomy/msg/detected_object.hpp"
+#include "autonomy/msg/detected_object_array.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 class TrackingFollowerNode final : public rclcpp::Node
@@ -44,18 +44,18 @@ public:
     max_angular_speed_ = get_parameter("max_angular_speed").as_double();
     target_timeout_sec_ = get_parameter("target_timeout_sec").as_double();
 
-    detections_sub_ = create_subscription<height_map_ros2::msg::DetectedObjectArray>(
+    detections_sub_ = create_subscription<autonomy::msg::DetectedObjectArray>(
       get_parameter("detections_topic").as_string(),
       10,
-      [this](height_map_ros2::msg::DetectedObjectArray::SharedPtr msg) {
+      [this](autonomy::msg::DetectedObjectArray::SharedPtr msg) {
         onDetections(std::move(msg));
       });
-    autonomy_sub_ = create_subscription<height_map_ros2::msg::AutonomyState>(
+    autonomy_sub_ = create_subscription<autonomy::msg::AutonomyState>(
       get_parameter("autonomy_status_topic").as_string(),
       10,
-      [this](height_map_ros2::msg::AutonomyState::SharedPtr msg) {
+      [this](autonomy::msg::AutonomyState::SharedPtr msg) {
         autonomy_allows_command_ =
-          msg->mode == height_map_ros2::msg::AutonomyState::TRACKING &&
+          msg->mode == autonomy::msg::AutonomyState::TRACKING &&
           msg->ai_enabled &&
           !msg->estop_active &&
           !msg->error_active;
@@ -83,9 +83,9 @@ public:
   }
 
 private:
-  void onDetections(height_map_ros2::msg::DetectedObjectArray::SharedPtr msg)
+  void onDetections(autonomy::msg::DetectedObjectArray::SharedPtr msg)
   {
-    const height_map_ros2::msg::DetectedObject * best = nullptr;
+    const autonomy::msg::DetectedObject * best = nullptr;
     float best_confidence = -std::numeric_limits<float>::infinity();
     for (const auto & object : msg->objects) {
       if (!object.has_3d_position) {
@@ -165,20 +165,20 @@ private:
   double max_angular_speed_{0.8};
   double target_timeout_sec_{0.5};
   rclcpp::Time target_stamp_{0, 0u, RCL_SYSTEM_TIME};
-  height_map_ros2::msg::DetectedObject target_;
-  rclcpp::Subscription<height_map_ros2::msg::DetectedObjectArray>::SharedPtr detections_sub_;
-  rclcpp::Subscription<height_map_ros2::msg::AutonomyState>::SharedPtr autonomy_sub_;
+  autonomy::msg::DetectedObject target_;
+  rclcpp::Subscription<autonomy::msg::DetectedObjectArray>::SharedPtr detections_sub_;
+  rclcpp::Subscription<autonomy::msg::AutonomyState>::SharedPtr autonomy_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<height_map_ros2::TrackingFollowerNode>());
+  rclcpp::spin(std::make_shared<autonomy::TrackingFollowerNode>());
   rclcpp::shutdown();
   return 0;
 }

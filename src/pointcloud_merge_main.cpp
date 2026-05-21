@@ -5,7 +5,7 @@
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<height_map_ros2::PointCloudMergerNode>());
+  rclcpp::spin(std::make_shared<autonomy::PointCloudMergerNode>());
   rclcpp::shutdown();
   return 0;
 }

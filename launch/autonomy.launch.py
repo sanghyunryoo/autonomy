@@ -8,7 +8,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-PACKAGE_NAME = "height_map_ros2"
+PACKAGE_NAME = "autonomy"
 NODE_SIGTERM_TIMEOUT = "0.5"
 NODE_SIGKILL_TIMEOUT = "1.0"
 QUIET_WORKER_ROS_ARGS = ["--ros-args", "--log-level", "fatal"]
@@ -321,7 +321,7 @@ def _openvins_params(config_file, data, space):
     if not imu_topic:
         raise RuntimeError(f"camera_bindings.{space}.adas must define imu_topic for openvins_vio_node")
 
-    output_dir = Path("/tmp") / f"height_map_ros2_openvins_{profile_name}"
+    output_dir = Path("/tmp") / f"autonomy_openvins_{profile_name}"
     output_dir.mkdir(parents=True, exist_ok=True)
     estimator_path = output_dir / "estimator_config.yaml"
     imu_path = output_dir / "kalibr_imu_chain.yaml"

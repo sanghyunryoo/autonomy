@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(height_map_ros2)
+project(autonomy)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -158,7 +158,6 @@ install(DIRECTORY docs
 
 install(PROGRAMS
   scripts/build.sh
-  scripts/build_realsense_driver.sh
   scripts/launch.sh
   scripts/generate_realsense_mapping_from_urdf.py
   scripts/generate_height_filter_from_urdf.py

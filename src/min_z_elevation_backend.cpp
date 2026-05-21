@@ -5,7 +5,7 @@
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 MinZElevationBackend::MinZElevationBackend(GridSpec spec)
@@ -58,4 +58,4 @@ ElevationGrid MinZElevationBackend::build(
   return grid;
 }
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

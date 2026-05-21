@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>height_map_ros2</name>
+  <name>autonomy</name>
   <version>0.1.0</version>
   <description>ROS2 integration layer for multi-RealSense point cloud merging and elevation map generation.</description>
-  <maintainer email="todo@example.com">height_map_ros2 maintainer</maintainer>
+  <maintainer email="todo@example.com">autonomy maintainer</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

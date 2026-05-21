@@ -1,4 +1,4 @@
-# height_map_ros2
+# autonomy
 
 ROS2 integration layer for merging multiple RealSense point clouds into `base_link`
 and producing a robot-centric elevation image.
@@ -39,14 +39,32 @@ links. If the RealSense driver publishes an optical frame such as
 
 ## Build
 
-From a ROS2 workspace:
+Use `scripts/build.sh` as the single entrypoint for both the simulation machine
+and Jetson hardware.
+
+Simulation/development machine:
 
 ```bash
 mkdir -p ~/ros2_ws/src
-ln -s /home/sunrise/SH/height_cli_lib_new/ros2/height_map_ros2 ~/ros2_ws/src/height_map_ros2
-cd ~/ros2_ws
-colcon build --packages-select height_map_ros2
-source install/setup.bash
+ln -s /home/sunrise/SH/height_cli_lib_new/ros2/autonomy ~/ros2_ws/src/autonomy
+~/ros2_ws/src/autonomy/scripts/build.sh sim
+source ~/ros2_ws/install/setup.bash
+```
+
+Jetson hardware setup and build:
+
+```bash
+mkdir -p ~/ros2_ws/src
+ln -s /path/to/autonomy ~/ros2_ws/src/autonomy
+~/ros2_ws/src/autonomy/scripts/build.sh jetson
+source ~/ros2_ws/install/setup.bash
+```
+
+After the first Jetson setup, rebuild only this stack with:
+
+```bash
+~/ros2_ws/src/autonomy/scripts/build.sh jetson \
+  --skip-ros --skip-librealsense --skip-realsense-ros
 ```
 
 ## Run
@@ -58,13 +76,13 @@ at runtime with `/autonomy_manager/set_mode`.
 Simulation:
 
 ```bash
-ros2 launch height_map_ros2 autonomy.launch.py simulation:=true
+ros2 launch autonomy autonomy.launch.py simulation:=true
 ```
 
 Hardware:
 
 ```bash
-ros2 launch height_map_ros2 autonomy.launch.py simulation:=false
+ros2 launch autonomy autonomy.launch.py simulation:=false
 ```
 
 Keep USB port bindings, camera topic bindings, merge settings, elevation tuning,
@@ -74,7 +92,7 @@ hardware, first identify the board port ids:
 ```bash
 sudo apt install python3-opencv python3-yaml
 python3 -m pip install pyrealsense2
-ros2 run height_map_ros2 show_realsense_usb_ports.py
+ros2 run autonomy show_realsense_usb_ports.py
 ```
 
 Each connected RealSense color image is displayed with its `usb_port_id`, serial,
@@ -91,7 +109,7 @@ configured depth FPS, and publishes the resolved bindings as JSON on
 Change mode at runtime:
 
 ```bash
-ros2 service call /autonomy_manager/set_mode height_map_ros2/srv/SetAutonomyMode \
+ros2 service call /autonomy_manager/set_mode autonomy/srv/SetAutonomyMode \
 "{operation_mode: 'ADAS', speed_limit: 0.8, enable_ai: true, segmentation: false}"
 ```
 
@@ -115,22 +133,22 @@ Topic names below are the defaults from `resources/config/autonomy.yaml`.
 
 | Topic | Direction | Type | Producer | What you get |
 | --- | --- | --- | --- | --- |
-| `/elevation_mapping_node/masked_height_scan` | output | `height_map_ros2/msg/MaskedHeightScan` | `elevation_mapping_node` | Robot-centric height grid with metadata and a validity mask. |
+| `/elevation_mapping_node/masked_height_scan` | output | `autonomy/msg/MaskedHeightScan` | `elevation_mapping_node` | Robot-centric height grid with metadata and a validity mask. |
 | `/command_filter` | output | `core/msg/CommandFilter` | `elevation_mapping_node` | Whether linear x/y movement is currently allowed. |
 | DDS `height_map` | output | `core_dds::HeightMap` | `elevation_mapping_node` | Compact DDS height-map sample: `sequence<float> data`. |
 | `/elevation_mapping_node/elevation_image` | output | `sensor_msgs/msg/Image` | `elevation_mapping_node` | Debug elevation image, encoding `32FC1`. |
 | `/elevation_mapping_node/elevation_points` | output | `sensor_msgs/msg/PointCloud2` | `elevation_mapping_node` | Debug point cloud generated from the elevation grid. |
-| `/autonomy_manager/status` | output | `height_map_ros2/msg/AutonomyState` | `autonomy_manager_node` | Current autonomy mode, ESTOP/error state, robot report fields, node health. |
-| `/autonomy_manager/state` | output | `height_map_ros2/msg/AutonomyState` | `autonomy_manager_node` | Same state contract as `/autonomy_manager/status`; useful for direct manager state consumers. |
+| `/autonomy_manager/status` | output | `autonomy/msg/AutonomyState` | `autonomy_manager_node` | Current autonomy mode, ESTOP/error state, robot report fields, node health. |
+| `/autonomy_manager/state` | output | `autonomy/msg/AutonomyState` | `autonomy_manager_node` | Same state contract as `/autonomy_manager/status`; useful for direct manager state consumers. |
 
 ### Main inputs
 
 | Topic or service | Direction | Type | Consumer | Purpose |
 | --- | --- | --- | --- | --- |
 | `/pointcloud_merge_node/merged_points` | input | `sensor_msgs/msg/PointCloud2` | `elevation_mapping_node` | Merged depth-camera point cloud in the robot frame. |
-| `/robot_report` | input | `core/msg/RobotReport` | `autonomy_manager_node` | Robot state, ESTOP, communication fault, and error reason from core. |
-| `/autonomy_manager/set_mode` | service | `height_map_ros2/srv/SetAutonomyMode` | `autonomy_manager_node` | Request autonomy mode, speed limit, AI enable, and segmentation enable. |
-| `/autonomy_manager/status` | input | `height_map_ros2/msg/AutonomyState` | autonomy child nodes | Tells child nodes whether their mode is active. |
+| `/robot_report` | input | `core/msg/RobotReport` | `autonomy_manager_node` | Robot state, ESTOP, communication fault, and error reason from the robot interface. |
+| `/autonomy_manager/set_mode` | service | `autonomy/srv/SetAutonomyMode` | `autonomy_manager_node` | Request autonomy mode, speed limit, AI enable, and segmentation enable. |
+| `/autonomy_manager/status` | input | `autonomy/msg/AutonomyState` | autonomy child nodes | Tells child nodes whether their mode is active. |
 
 ### Receiving the height scan in ROS 2
 
@@ -144,7 +162,7 @@ ros2 topic echo /elevation_mapping_node/masked_height_scan
 Message type:
 
 ```text
-height_map_ros2/msg/MaskedHeightScan
+autonomy/msg/MaskedHeightScan
 ```
 
 Field meaning:
@@ -281,7 +299,7 @@ Key fields:
 
 The autonomy launch uses OpenVINS `ov_msckf` for stereo-inertial VIO instead of
 building ORB-SLAM3 in this package. `scripts/build.sh` prepares `src/open_vins` when it
-is missing and builds `ov_msckf` together with `height_map_ros2`.
+is missing and builds `ov_msckf` together with `autonomy`.
 
 OpenVINS publishes odometry on `/odomimu`. The local
 `vio_pose_adapter_node` republishes `/localization/current_pose` as

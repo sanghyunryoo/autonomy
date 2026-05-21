@@ -10,7 +10,7 @@
 
 #include "min_z_elevation_backend.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions & options)
@@ -152,10 +152,10 @@ void ElevationMappingNode::createIo()
   fps_window_start_ = std::chrono::steady_clock::now();
 
   if (respect_autonomy_mode_) {
-    autonomy_sub_ = create_subscription<height_map_ros2::msg::AutonomyState>(
+    autonomy_sub_ = create_subscription<autonomy::msg::AutonomyState>(
       autonomy_status_topic_,
       rclcpp::QoS(10),
-      [this](height_map_ros2::msg::AutonomyState::SharedPtr msg) {
+      [this](autonomy::msg::AutonomyState::SharedPtr msg) {
         onAutonomyState(std::move(msg));
       });
   }
@@ -170,7 +170,7 @@ void ElevationMappingNode::createIo()
   elevation_image_pub_ = create_publisher<sensor_msgs::msg::Image>(output_image_topic_, 10);
   elevation_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
     output_cloud_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
-  masked_height_scan_pub_ = create_publisher<height_map_ros2::msg::MaskedHeightScan>(
+  masked_height_scan_pub_ = create_publisher<autonomy::msg::MaskedHeightScan>(
     output_masked_height_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
     "/autonomy/heartbeat/elevation_mapping_node", 10);
@@ -189,7 +189,7 @@ void ElevationMappingNode::createIo()
       output_local_terrain_image_topic_, 10);
     local_terrain_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       output_local_terrain_cloud_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
-    local_terrain_scan_pub_ = create_publisher<height_map_ros2::msg::MaskedHeightScan>(
+    local_terrain_scan_pub_ = create_publisher<autonomy::msg::MaskedHeightScan>(
       output_local_terrain_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   }
   if (dds_height_map_enabled_) {
@@ -246,7 +246,7 @@ void ElevationMappingNode::publishHeartbeat()
   heartbeat_pub_->publish(msg);
 }
 
-void ElevationMappingNode::onAutonomyState(height_map_ros2::msg::AutonomyState::SharedPtr msg)
+void ElevationMappingNode::onAutonomyState(autonomy::msg::AutonomyState::SharedPtr msg)
 {
   autonomy_mode_ = msg->mode;
   has_autonomy_state_ = true;
@@ -260,11 +260,11 @@ bool ElevationMappingNode::processingActive() const
   if (!has_autonomy_state_) {
     return false;
   }
-  return autonomy_mode_ == height_map_ros2::msg::AutonomyState::DRIVE ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::ADAS ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::FSD ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::MAPPING ||
-    autonomy_mode_ == height_map_ros2::msg::AutonomyState::TRACKING;
+  return autonomy_mode_ == autonomy::msg::AutonomyState::DRIVE ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::ADAS ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::FSD ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::MAPPING ||
+    autonomy_mode_ == autonomy::msg::AutonomyState::TRACKING;
 }
 
 void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -462,4 +462,4 @@ sensor_msgs::msg::PointCloud2 ElevationMappingNode::gridToPointCloud(const Eleva
   return cloud;
 }
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

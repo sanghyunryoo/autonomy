@@ -8,7 +8,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/header.hpp>
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 struct GridSpec
@@ -37,4 +37,4 @@ struct ElevationGrid
   [[nodiscard]] sensor_msgs::msg::Image toImageMsg(const std::string & encoding = "32FC1") const;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

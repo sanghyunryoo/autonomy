@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 HeightMapFrame gridToHeightMapFrame(
@@ -32,9 +32,9 @@ HeightMapFrame gridToHeightMapFrame(
   return frame;
 }
 
-height_map_ros2::msg::MaskedHeightScan toRosMaskedHeightScan(const HeightMapFrame & frame)
+autonomy::msg::MaskedHeightScan toRosMaskedHeightScan(const HeightMapFrame & frame)
 {
-  height_map_ros2::msg::MaskedHeightScan msg;
+  autonomy::msg::MaskedHeightScan msg;
   msg.header = frame.header;
   msg.width = frame.spec.width();
   msg.height = frame.spec.height();
@@ -58,4 +58,4 @@ DdsHeightMap toDdsHeightMap(const HeightMapFrame & frame)
   return msg;
 }
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

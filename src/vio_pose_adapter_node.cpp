@@ -9,7 +9,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 class VioPoseAdapterNode final : public rclcpp::Node
@@ -78,12 +78,12 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<height_map_ros2::VioPoseAdapterNode>());
+  rclcpp::spin(std::make_shared<autonomy::VioPoseAdapterNode>());
   rclcpp::shutdown();
   return 0;
 }

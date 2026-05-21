@@ -16,16 +16,16 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/string.hpp>
 
-#include "height_map_ros2/msg/autonomy_state.hpp"
+#include "autonomy/msg/autonomy_state.hpp"
 #include "core/msg/robot_report.hpp"
-#include "height_map_ros2/srv/set_autonomy_mode.hpp"
+#include "autonomy/srv/set_autonomy_mode.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 namespace
 {
 
-using AutonomyStateMsg = height_map_ros2::msg::AutonomyState;
+using AutonomyStateMsg = autonomy::msg::AutonomyState;
 
 std::string upper(std::string text)
 {
@@ -240,7 +240,7 @@ public:
 
     state_pub_ = create_publisher<AutonomyStateMsg>("~/state", 10);
     status_pub_ = create_publisher<AutonomyStateMsg>("~/status", 10);
-    set_mode_srv_ = create_service<height_map_ros2::srv::SetAutonomyMode>(
+    set_mode_srv_ = create_service<autonomy::srv::SetAutonomyMode>(
       "~/set_mode",
       std::bind(&AutonomyManagerNode::onSetMode, this, std::placeholders::_1, std::placeholders::_2));
 
@@ -260,8 +260,8 @@ private:
   }
 
   void onSetMode(
-    const std::shared_ptr<height_map_ros2::srv::SetAutonomyMode::Request> request,
-    std::shared_ptr<height_map_ros2::srv::SetAutonomyMode::Response> response)
+    const std::shared_ptr<autonomy::srv::SetAutonomyMode::Request> request,
+    std::shared_ptr<autonomy::srv::SetAutonomyMode::Response> response)
   {
     response->current_mode = mode_;
     response->enable_ai = ai_enabled_;
@@ -684,16 +684,16 @@ private:
   rclcpp::Subscription<core::msg::RobotReport>::SharedPtr robot_report_sub_;
   rclcpp::Publisher<AutonomyStateMsg>::SharedPtr state_pub_;
   rclcpp::Publisher<AutonomyStateMsg>::SharedPtr status_pub_;
-  rclcpp::Service<height_map_ros2::srv::SetAutonomyMode>::SharedPtr set_mode_srv_;
+  rclcpp::Service<autonomy::srv::SetAutonomyMode>::SharedPtr set_mode_srv_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<height_map_ros2::AutonomyManagerNode>());
+  rclcpp::spin(std::make_shared<autonomy::AutonomyManagerNode>());
   rclcpp::shutdown();
   return 0;
 }

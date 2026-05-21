@@ -60,4 +60,4 @@ if [[ "${has_simulation_arg}" == false ]]; then
   launch_args=("simulation:=false" "${launch_args[@]}")
 fi
 
-exec ros2 launch height_map_ros2 autonomy.launch.py "${launch_args[@]}"
+exec ros2 launch autonomy autonomy.launch.py "${launch_args[@]}"

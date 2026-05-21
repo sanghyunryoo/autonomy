@@ -2,7 +2,7 @@
 
 #include "elevation_map_backend.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 class MinZElevationBackend final : public ElevationMapBackend
@@ -18,4 +18,4 @@ private:
   GridSpec spec_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

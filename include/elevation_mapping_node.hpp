@@ -13,11 +13,11 @@
 #include "dds_height_map_publisher.hpp"
 #include "elevation_map_backend.hpp"
 #include "height_map_model.hpp"
-#include "height_map_ros2/msg/autonomy_state.hpp"
+#include "autonomy/msg/autonomy_state.hpp"
 #include "core/msg/command_filter.hpp"
-#include "height_map_ros2/msg/masked_height_scan.hpp"
+#include "autonomy/msg/masked_height_scan.hpp"
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 class ElevationMappingNode final : public rclcpp::Node
@@ -29,7 +29,7 @@ private:
   void loadParameters();
   void createIo();
   void publishHeartbeat();
-  void onAutonomyState(height_map_ros2::msg::AutonomyState::SharedPtr msg);
+  void onAutonomyState(autonomy::msg::AutonomyState::SharedPtr msg);
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void publishCommandFilter();
   [[nodiscard]] bool processingActive() const;
@@ -58,7 +58,7 @@ private:
   bool local_terrain_map_enabled_{false};
   bool respect_autonomy_mode_{false};
   bool has_autonomy_state_{false};
-  int8_t autonomy_mode_{height_map_ros2::msg::AutonomyState::IDLE};
+  int8_t autonomy_mode_{autonomy::msg::AutonomyState::IDLE};
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
   bool dds_height_map_enabled_{true};
   int dds_domain_id_{0};
@@ -83,14 +83,14 @@ private:
   HeightMapFrame latest_height_map_;
   bool has_latest_height_map_{false};
 
-  rclcpp::Subscription<height_map_ros2::msg::AutonomyState>::SharedPtr autonomy_sub_;
+  rclcpp::Subscription<autonomy::msg::AutonomyState>::SharedPtr autonomy_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr elevation_image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr elevation_cloud_pub_;
-  rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr masked_height_scan_pub_;
+  rclcpp::Publisher<autonomy::msg::MaskedHeightScan>::SharedPtr masked_height_scan_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr local_terrain_image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr local_terrain_cloud_pub_;
-  rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr local_terrain_scan_pub_;
+  rclcpp::Publisher<autonomy::msg::MaskedHeightScan>::SharedPtr local_terrain_scan_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<core::msg::CommandFilter>::SharedPtr command_filter_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -100,4 +100,4 @@ private:
   std::unique_ptr<DdsHeightMapPublisher> dds_height_map_pub_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

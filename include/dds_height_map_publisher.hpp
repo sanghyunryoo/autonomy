@@ -15,7 +15,7 @@ class Topic;
 class TypeSupport;
 }  // namespace eprosima::fastdds::dds
 
-namespace height_map_ros2
+namespace autonomy
 {
 
 class DdsHeightMapPublisher final
@@ -50,4 +50,4 @@ private:
   std::unique_ptr<eprosima::fastdds::dds::TypeSupport> type_support_;
 };
 
-}  // namespace height_map_ros2
+}  // namespace autonomy

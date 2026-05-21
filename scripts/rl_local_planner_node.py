@@ -8,7 +8,7 @@ from geometry_msgs.msg import Pose2D, Twist
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from height_map_ros2.msg import MaskedHeightScan
+from autonomy.msg import MaskedHeightScan
 
 
 class RlLocalPlannerNode(Node):
