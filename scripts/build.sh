@@ -83,6 +83,20 @@ apt_install() {
   sudo apt-get install -y "$@"
 }
 
+apt_package_installed() {
+  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"
+}
+
+all_apt_packages_installed() {
+  local package
+  for package in "$@"; do
+    if ! apt_package_installed "${package}"; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 drop_path_prefix() {
   local value="${1:-}"
   local prefix="${2:-}"
@@ -319,53 +333,61 @@ setup_ros_apt_repo() {
 }
 
 install_system_packages() {
-  log "Installing system packages"
+  local packages=(
+    software-properties-common
+    curl
+    gnupg
+    lsb-release
+    ca-certificates
+    build-essential
+    cmake
+    git
+    wget
+    pkg-config
+    python3-dev
+    python3-pip
+    python3-setuptools
+    python3-wheel
+    python3-numpy
+    python3-opencv
+    python3-yaml
+    python3-rosdep
+    python3-colcon-common-extensions
+    libssl-dev
+    libusb-1.0-0-dev
+    libudev-dev
+    libgtk-3-dev
+    libglfw3-dev
+    libgl1-mesa-dev
+    libglu1-mesa-dev
+    libxinerama-dev
+    libxcursor-dev
+    libxi-dev
+    libxrandr-dev
+    libudev1
+    libtbb-dev
+    libjpeg-dev
+    libpng-dev
+    libtiff-dev
+    libdc1394-dev
+    v4l-utils
+    usbutils
+  )
+
+  if all_apt_packages_installed "${packages[@]}"; then
+    log "System packages already installed; skipping apt install"
+    return
+  fi
+
+  log "Installing missing system packages"
   sudo apt-get update
 
-  apt_install \
-    software-properties-common \
-    curl \
-    gnupg \
-    lsb-release \
-    ca-certificates
+  apt_install software-properties-common curl gnupg lsb-release ca-certificates
 
   sudo add-apt-repository universe -y
   sudo apt-get update
 
-  apt_install \
-    build-essential \
-    cmake \
-    git \
-    wget \
-    pkg-config \
-    python3-dev \
-    python3-pip \
-    python3-setuptools \
-    python3-wheel \
-    python3-numpy \
-    python3-opencv \
-    python3-yaml \
-    python3-rosdep \
-    python3-colcon-common-extensions \
-    libssl-dev \
-    libusb-1.0-0-dev \
-    libudev-dev \
-    libgtk-3-dev \
-    libglfw3-dev \
-    libgl1-mesa-dev \
-    libglu1-mesa-dev \
-    libxinerama-dev \
-    libxcursor-dev \
-    libxi-dev \
-    libxrandr-dev \
-    libudev1 \
-    libtbb-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libtiff-dev \
-    libdc1394-dev \
-    v4l-utils \
-    usbutils
+  apt_install "${packages[@]}"
 }
 
 install_ros_packages() {
@@ -373,36 +395,47 @@ install_ros_packages() {
     return
   fi
 
+  local ros_packages=(
+    "ros-${ros_distro}-ament-cmake"
+    "ros-${ros_distro}-ament-lint-auto"
+    "ros-${ros_distro}-ament-lint-common"
+    "ros-${ros_distro}-cv-bridge"
+    "ros-${ros_distro}-diagnostic-updater"
+    "ros-${ros_distro}-geometry-msgs"
+    "ros-${ros_distro}-image-transport"
+    "ros-${ros_distro}-message-filters"
+    "ros-${ros_distro}-nav-msgs"
+    "ros-${ros_distro}-robot-state-publisher"
+    "ros-${ros_distro}-rosidl-default-generators"
+    "ros-${ros_distro}-rosidl-default-runtime"
+    "ros-${ros_distro}-sensor-msgs"
+    "ros-${ros_distro}-std-msgs"
+    "ros-${ros_distro}-tf2"
+    "ros-${ros_distro}-tf2-geometry-msgs"
+    "ros-${ros_distro}-tf2-ros"
+    "ros-${ros_distro}-xacro"
+  )
+  if [[ "${install_ros_desktop}" == "ON" ]]; then
+    ros_packages=("ros-${ros_distro}-desktop" "${ros_packages[@]}")
+  else
+    ros_packages=("ros-${ros_distro}-ros-base" "${ros_packages[@]}")
+  fi
+
+  if [[ -f "${ros_setup}" ]] && all_apt_packages_installed "${ros_packages[@]}"; then
+    log "ROS 2 ${ros_distro} packages already installed; skipping ROS apt install"
+    if ! rosdep db >/dev/null 2>&1; then
+      log "Initializing rosdep"
+      sudo rosdep init 2>/dev/null || true
+      rosdep update
+    fi
+    return
+  fi
+
   setup_ros_apt_repo
   sudo apt-get update
 
   log "Installing ROS 2 ${ros_distro}"
-  if [[ "${install_ros_desktop}" == "ON" ]]; then
-    apt_install "ros-${ros_distro}-desktop"
-  else
-    apt_install "ros-${ros_distro}-ros-base"
-  fi
-
-  log "Installing ROS 2 packages used by autonomy"
-  apt_install \
-    "ros-${ros_distro}-ament-cmake" \
-    "ros-${ros_distro}-ament-lint-auto" \
-    "ros-${ros_distro}-ament-lint-common" \
-    "ros-${ros_distro}-cv-bridge" \
-    "ros-${ros_distro}-diagnostic-updater" \
-    "ros-${ros_distro}-geometry-msgs" \
-    "ros-${ros_distro}-image-transport" \
-    "ros-${ros_distro}-message-filters" \
-    "ros-${ros_distro}-nav-msgs" \
-    "ros-${ros_distro}-robot-state-publisher" \
-    "ros-${ros_distro}-rosidl-default-generators" \
-    "ros-${ros_distro}-rosidl-default-runtime" \
-    "ros-${ros_distro}-sensor-msgs" \
-    "ros-${ros_distro}-std-msgs" \
-    "ros-${ros_distro}-tf2" \
-    "ros-${ros_distro}-tf2-geometry-msgs" \
-    "ros-${ros_distro}-tf2-ros" \
-    "ros-${ros_distro}-xacro"
+  apt_install "${ros_packages[@]}"
 
   if ! rosdep db >/dev/null 2>&1; then
     log "Initializing rosdep"
@@ -430,9 +463,35 @@ configure_cuda() {
   fi
 }
 
+librealsense_installed() {
+  command -v rs-enumerate-devices >/dev/null 2>&1 || return 1
+
+  if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists realsense2; then
+    return 0
+  fi
+
+  if ldconfig -p 2>/dev/null | grep -q "librealsense2"; then
+    return 0
+  fi
+
+  [[ -f /usr/local/lib/librealsense2.so || -f /usr/lib/aarch64-linux-gnu/librealsense2.so ]]
+}
+
+pyrealsense2_installed() {
+  python3 -c 'import pyrealsense2' >/dev/null 2>&1
+}
+
 build_librealsense_from_source() {
   if [[ "${build_librealsense}" != "ON" ]]; then
     return
+  fi
+
+  if [[ "${clean}" != "ON" ]] && librealsense_installed; then
+    if [[ "${build_python}" != "ON" ]] || pyrealsense2_installed; then
+      log "librealsense is already installed; skipping librealsense build"
+      return
+    fi
+    log "librealsense is installed, but pyrealsense2 is missing; rebuilding Python bindings"
   fi
 
   configure_cuda
@@ -516,6 +575,19 @@ build_realsense_ros_driver() {
   fi
 
   source_ros
+  if [[ -f "${workspace_dir}/install/setup.bash" ]]; then
+    set +u
+    # shellcheck disable=SC1091
+    source "${workspace_dir}/install/setup.bash"
+    set -u
+  fi
+
+  if [[ "${clean}" != "ON" ]] &&
+    ros2 pkg prefix realsense2_camera >/dev/null 2>&1 &&
+    ros2 pkg prefix realsense2_camera_msgs >/dev/null 2>&1; then
+    log "realsense-ros is already installed; skipping realsense-ros build"
+    return
+  fi
 
   local src_dir="${workspace_dir}/src"
   local repo_dir="${src_dir}/realsense-ros"
