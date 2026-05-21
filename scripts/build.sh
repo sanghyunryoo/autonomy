@@ -351,8 +351,6 @@ install_system_packages() {
     python3-numpy
     python3-opencv
     python3-yaml
-    python3-rosdep
-    python3-colcon-common-extensions
     libssl-dev
     libusb-1.0-0-dev
     libudev-dev
@@ -396,6 +394,8 @@ install_ros_packages() {
   fi
 
   local ros_packages=(
+    python3-rosdep
+    python3-colcon-common-extensions
     "ros-${ros_distro}-ament-cmake"
     "ros-${ros_distro}-ament-lint-auto"
     "ros-${ros_distro}-ament-lint-common"
