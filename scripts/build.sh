@@ -32,6 +32,10 @@ Common options:
   --skip-autonomy-build      Do not build autonomy after setup.
   --workspace <path>         ROS workspace. Default: inferred workspace or $HOME/ros2_ws.
   --ros-distro <name>        ROS 2 distro. Default: humble.
+  --jobs <n>                 Low-memory shortcut: set colcon, CMake, and librealsense jobs.
+  --colcon-workers <n>       Maximum colcon packages built in parallel.
+  --cmake-jobs <n>           Maximum compiler jobs inside CMake/Make/Ninja builds.
+  --librealsense-jobs <n>    Maximum jobs for the librealsense source build.
   -- <args>                  Extra arguments passed to colcon build.
 
 Jetson setup options:
@@ -53,6 +57,10 @@ Environment:
   PYTHON_EXECUTABLE          Python executable passed to CMake when set.
   CMAKE_TOOLCHAIN_FILE       Optional CMake toolchain for cross compilation.
   BUILD_TYPE                 CMake build type. Default: Release.
+  BUILD_JOBS                 Same as --jobs when set.
+  COLCON_WORKERS             Same as --colcon-workers when set.
+  CMAKE_BUILD_JOBS           Same as --cmake-jobs when set.
+  LIBREALSENSE_JOBS          Same as --librealsense-jobs when set.
   RUN_ROSDEP                 Set to 1 to run rosdep before build-only flows.
   ONNXRUNTIME_VERSION        ONNX Runtime binary release. Default: 1.18.1.
   OPENVINS_REPO              OpenVINS git repository. Default: https://github.com/rpng/open_vins.git.
@@ -95,6 +103,14 @@ all_apt_packages_installed() {
     fi
   done
   return 0
+}
+
+require_positive_int() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
+    die "${name} must be a positive integer"
+  fi
 }
 
 drop_path_prefix() {
@@ -184,6 +200,10 @@ librealsense_ref="${LIBREALSENSE_REF:-v2.57.7}"
 librealsense_src_dir="${LIBREALSENSE_SRC_DIR:-${HOME}/librealsense}"
 realsense_ros_ref="${REALSENSE_ROS_REF:-4.57.7}"
 realsense_ros_repo="${REALSENSE_ROS_REPO:-https://github.com/realsenseai/realsense-ros.git}"
+build_jobs="${BUILD_JOBS:-}"
+colcon_workers="${COLCON_WORKERS:-${BUILD_JOBS:-}}"
+cmake_build_jobs="${CMAKE_BUILD_JOBS:-${BUILD_JOBS:-}}"
+librealsense_jobs="${LIBREALSENSE_JOBS:-${BUILD_JOBS:-}}"
 extra_colcon_args=()
 
 while [[ $# -gt 0 ]]; do
@@ -209,6 +229,33 @@ while [[ $# -gt 0 ]]; do
     --ros-distro)
       [[ $# -ge 2 ]] || die "--ros-distro requires a value"
       ros_distro="$2"
+      shift 2
+      ;;
+    --jobs)
+      [[ $# -ge 2 ]] || die "--jobs requires a value"
+      require_positive_int "--jobs" "$2"
+      build_jobs="$2"
+      colcon_workers="$2"
+      cmake_build_jobs="$2"
+      librealsense_jobs="$2"
+      shift 2
+      ;;
+    --colcon-workers)
+      [[ $# -ge 2 ]] || die "--colcon-workers requires a value"
+      require_positive_int "--colcon-workers" "$2"
+      colcon_workers="$2"
+      shift 2
+      ;;
+    --cmake-jobs)
+      [[ $# -ge 2 ]] || die "--cmake-jobs requires a value"
+      require_positive_int "--cmake-jobs" "$2"
+      cmake_build_jobs="$2"
+      shift 2
+      ;;
+    --librealsense-jobs)
+      [[ $# -ge 2 ]] || die "--librealsense-jobs requires a value"
+      require_positive_int "--librealsense-jobs" "$2"
+      librealsense_jobs="$2"
       shift 2
       ;;
     --with-desktop)
@@ -268,6 +315,21 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "${build_jobs}" ]]; then
+  require_positive_int "BUILD_JOBS" "${build_jobs}"
+fi
+if [[ -n "${colcon_workers}" ]]; then
+  require_positive_int "COLCON_WORKERS" "${colcon_workers}"
+fi
+if [[ -n "${cmake_build_jobs}" ]]; then
+  require_positive_int "CMAKE_BUILD_JOBS" "${cmake_build_jobs}"
+  export CMAKE_BUILD_PARALLEL_LEVEL="${cmake_build_jobs}"
+  export MAKEFLAGS="-j${cmake_build_jobs} ${MAKEFLAGS:-}"
+fi
+if [[ -n "${librealsense_jobs}" ]]; then
+  require_positive_int "LIBREALSENSE_JOBS" "${librealsense_jobs}"
+fi
 
 if [[ "${run_jetson_setup}" == "ON" && "${mode}" != "jetson" ]]; then
   warn "--setup-only is intended for Jetson setup; continuing with Jetson setup steps."
@@ -548,9 +610,13 @@ build_librealsense_from_source() {
   cmake "${cmake_args[@]}"
 
   local jobs
-  jobs="$(nproc)"
-  if [[ "${jobs}" -gt 1 ]]; then
-    jobs="$((jobs - 1))"
+  if [[ -n "${librealsense_jobs}" ]]; then
+    jobs="${librealsense_jobs}"
+  else
+    jobs="$(nproc)"
+    if [[ "${jobs}" -gt 1 ]]; then
+      jobs="$((jobs - 1))"
+    fi
   fi
 
   log "Building librealsense with ${jobs} job(s)"
@@ -615,9 +681,15 @@ build_realsense_ros_driver() {
   rosdep install --from-paths src/realsense-ros -i -y -r --rosdistro "${ros_distro}" || true
 
   log "Building realsense-ros"
+  local colcon_args=(
+    --symlink-install
+    --packages-up-to realsense2_camera
+  )
+  if [[ -n "${colcon_workers}" ]]; then
+    colcon_args+=(--parallel-workers "${colcon_workers}")
+  fi
   colcon build \
-    --symlink-install \
-    --packages-up-to realsense2_camera \
+    "${colcon_args[@]}" \
     --cmake-args -DCMAKE_BUILD_TYPE=Release
 }
 
@@ -840,9 +912,15 @@ build_autonomy_package() {
   if [[ "${run_jetson_setup}" == "ON" || "${RUN_ROSDEP:-0}" == "1" ]]; then
     rosdep install --from-paths src -i -y -r --rosdistro "${ros_distro}" || true
   fi
+  local colcon_args=(
+    --symlink-install
+    --packages-up-to ov_msckf autonomy
+  )
+  if [[ -n "${colcon_workers}" ]]; then
+    colcon_args+=(--parallel-workers "${colcon_workers}")
+  fi
   colcon build \
-    --symlink-install \
-    --packages-up-to ov_msckf autonomy \
+    "${colcon_args[@]}" \
     "${extra_colcon_args[@]}" \
     --cmake-args "${cmake_args[@]}"
 }
