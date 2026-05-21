@@ -17,7 +17,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include "height_map_ros2/msg/autonomy_state.hpp"
-#include "height_map_ros2/msg/robot_report.hpp"
+#include "core/msg/robot_report.hpp"
 #include "height_map_ros2/srv/set_autonomy_mode.hpp"
 
 namespace height_map_ros2
@@ -231,10 +231,10 @@ public:
         latest_velocity_ = msg->twist.twist;
         has_pose_ = true;
       });
-    robot_report_sub_ = create_subscription<height_map_ros2::msg::RobotReport>(
+    robot_report_sub_ = create_subscription<core::msg::RobotReport>(
       get_parameter("robot_report_topic").as_string(),
       10,
-      [this](height_map_ros2::msg::RobotReport::SharedPtr msg) {
+      [this](core::msg::RobotReport::SharedPtr msg) {
         onRobotReport(std::move(msg));
       });
 
@@ -322,7 +322,7 @@ private:
     response->segmentation = segmentation_enabled_;
   }
 
-  void onRobotReport(height_map_ros2::msg::RobotReport::SharedPtr msg)
+  void onRobotReport(core::msg::RobotReport::SharedPtr msg)
   {
     robot_state_ = msg->robot_state;
     robot_state_name_ = msg->robot_state_name;
@@ -681,7 +681,7 @@ private:
   std::unordered_map<std::string, NodeStatus> node_status_;
   std::vector<rclcpp::Subscription<std_msgs::msg::String>::SharedPtr> heartbeat_subs_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
-  rclcpp::Subscription<height_map_ros2::msg::RobotReport>::SharedPtr robot_report_sub_;
+  rclcpp::Subscription<core::msg::RobotReport>::SharedPtr robot_report_sub_;
   rclcpp::Publisher<AutonomyStateMsg>::SharedPtr state_pub_;
   rclcpp::Publisher<AutonomyStateMsg>::SharedPtr status_pub_;
   rclcpp::Service<height_map_ros2::srv::SetAutonomyMode>::SharedPtr set_mode_srv_;

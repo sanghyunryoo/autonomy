@@ -211,7 +211,7 @@ void DdsHeightMapPublisher::initialize()
   auto writer_qos = DATAWRITER_QOS_DEFAULT;
   writer_qos.history().kind = KEEP_LAST_HISTORY_QOS;
   writer_qos.history().depth = 1;
-  writer_qos.reliability().kind = BEST_EFFORT_RELIABILITY_QOS;
+  writer_qos.reliability().kind = RELIABLE_RELIABILITY_QOS;
   writer_qos.resource_limits().max_samples = 1;
   writer_qos.resource_limits().allocated_samples = 1;
   writer_qos.resource_limits().extra_samples = 1;

@@ -17,6 +17,7 @@ if(NOT EXISTS "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(core REQUIRED)
 find_package(fastcdr REQUIRED)
 find_package(fastrtps REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -33,11 +34,9 @@ find_package(tf2_ros REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AutonomyState.msg"
-  "msg/CommandFilter.msg"
   "msg/DetectedObject.msg"
   "msg/DetectedObjectArray.msg"
   "msg/MaskedHeightScan.msg"
-  "msg/RobotReport.msg"
   "srv/SetAutonomyMode.srv"
   DEPENDENCIES geometry_msgs std_msgs
 )
@@ -77,6 +76,7 @@ target_include_directories(elevation_mapping_node
 )
 
 ament_target_dependencies(elevation_mapping_node
+  core
   rclcpp
   sensor_msgs
   std_msgs
@@ -90,7 +90,7 @@ add_executable(autonomy_manager_node
   src/autonomy_manager_node.cpp
 )
 target_include_directories(autonomy_manager_node PRIVATE include)
-ament_target_dependencies(autonomy_manager_node geometry_msgs nav_msgs rclcpp std_msgs)
+ament_target_dependencies(autonomy_manager_node core geometry_msgs nav_msgs rclcpp std_msgs)
 target_link_libraries(autonomy_manager_node "${cpp_typesupport_target}")
 
 add_executable(rl_local_planner_node

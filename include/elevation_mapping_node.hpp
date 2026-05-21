@@ -14,7 +14,7 @@
 #include "elevation_map_backend.hpp"
 #include "height_map_model.hpp"
 #include "height_map_ros2/msg/autonomy_state.hpp"
-#include "height_map_ros2/msg/command_filter.hpp"
+#include "core/msg/command_filter.hpp"
 #include "height_map_ros2/msg/masked_height_scan.hpp"
 
 namespace height_map_ros2
@@ -33,7 +33,7 @@ private:
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void publishCommandFilter();
   [[nodiscard]] bool processingActive() const;
-  [[nodiscard]] height_map_ros2::msg::CommandFilter evaluateCommandFilter(
+  [[nodiscard]] core::msg::CommandFilter evaluateCommandFilter(
     double move_forward,
     double move_right) const;
   void fillDebugGrid(ElevationGrid & grid) const;
@@ -92,7 +92,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr local_terrain_cloud_pub_;
   rclcpp::Publisher<height_map_ros2::msg::MaskedHeightScan>::SharedPtr local_terrain_scan_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
-  rclcpp::Publisher<height_map_ros2::msg::CommandFilter>::SharedPtr command_filter_pub_;
+  rclcpp::Publisher<core::msg::CommandFilter>::SharedPtr command_filter_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
   rclcpp::TimerBase::SharedPtr command_filter_timer_;
   std::unique_ptr<ElevationMapBackend> elevation_backend_;

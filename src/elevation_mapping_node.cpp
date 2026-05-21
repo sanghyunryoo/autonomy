@@ -174,7 +174,7 @@ void ElevationMappingNode::createIo()
     output_masked_height_scan_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
     "/autonomy/heartbeat/elevation_mapping_node", 10);
-  command_filter_pub_ = create_publisher<height_map_ros2::msg::CommandFilter>(
+  command_filter_pub_ = create_publisher<core::msg::CommandFilter>(
     command_filter_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile());
   heartbeat_timer_ = create_wall_timer(
     std::chrono::milliseconds(500),
@@ -328,11 +328,11 @@ void ElevationMappingNode::publishCommandFilter()
   command_filter_pub_->publish(evaluateCommandFilter(forward_distance, lateral_distance));
 }
 
-height_map_ros2::msg::CommandFilter ElevationMappingNode::evaluateCommandFilter(
+core::msg::CommandFilter ElevationMappingNode::evaluateCommandFilter(
   const double move_forward,
   const double move_right) const
 {
-  height_map_ros2::msg::CommandFilter result;
+  core::msg::CommandFilter result;
   result.allow_linear_vel_x = true;
   result.allow_linear_vel_y = true;
 
