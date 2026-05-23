@@ -802,6 +802,8 @@ ensure_core_interface_package() {
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
 
+  <depend>nav_msgs</depend>
+
   <exec_depend>rosidl_default_runtime</exec_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
@@ -819,18 +821,25 @@ project(core)
 
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(nav_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CommandFilter.msg"
   "msg/RobotReport.msg"
+  "msg/CommandUser.msg"
+  "msg/EventUser.msg"
+  DEPENDENCIES nav_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)
+ament_export_dependencies(nav_msgs)
 ament_package()
 EOF
 
   cp "${package_dir}/msg/CommandFilter.msg" "${core_dir}/msg/CommandFilter.msg"
   cp "${package_dir}/msg/RobotReport.msg" "${core_dir}/msg/RobotReport.msg"
+  cp "${package_dir}/msg/CommandUser.msg" "${core_dir}/msg/CommandUser.msg"
+  cp "${package_dir}/msg/EventUser.msg" "${core_dir}/msg/EventUser.msg"
 }
 
 ensure_onnxruntime() {
