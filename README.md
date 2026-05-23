@@ -214,10 +214,12 @@ Fields:
 
 | Field | Meaning |
 | --- | --- |
-| `allow_linear_vel_x` | `true` means forward/backward x velocity is allowed. `false` means an obstacle blocks the configured x corridor. |
-| `allow_linear_vel_y` | `true` means lateral y velocity is allowed. `false` means an obstacle blocks the configured y corridor. |
+| `allow_linear_vel_forward_x` | `true` means positive x velocity is allowed. |
+| `allow_linear_vel_backward_x` | `true` means negative x velocity is allowed. |
+| `allow_linear_vel_forward_y` | `true` means positive y velocity is allowed. |
+| `allow_linear_vel_backward_y` | `true` means negative y velocity is allowed. |
 
-If no height map has arrived yet, both fields default to `true`. A field becomes
+If no height map has arrived yet, all fields default to `true`. A field becomes
 `false` when the latest height map contains an obstacle at least the configured
 `command_filter.obstacle_height_threshold` above `command_filter.obstacle_floor_z`
 inside that movement corridor.

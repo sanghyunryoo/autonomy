@@ -784,10 +784,11 @@ ensure_core_interface_package() {
   local core_dir="${workspace_dir}/src/core"
 
   if [[ -f "${core_dir}/package.xml" ]]; then
-    return
+    log "Updating managed core interface package: ${core_dir}"
+  else
+    log "Creating managed core interface package: ${core_dir}"
   fi
 
-  log "Creating managed core interface package: ${core_dir}"
   mkdir -p "${core_dir}/msg"
 
   cat > "${core_dir}/package.xml" <<'EOF'

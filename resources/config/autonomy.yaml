@@ -245,7 +245,7 @@ rl_local_planner_node:
     current_pose_topic: /localization/current_pose
     target_pose_topic: /planning/target_pose
     height_scan_topic: /elevation_mapping_node/local_terrain_map
-    cmd_vel_topic: /cmd_vel
+    command_user_topic: /command_user
     autonomy_status_topic: /autonomy_manager/status
     publish_rate_hz: 20.0
 

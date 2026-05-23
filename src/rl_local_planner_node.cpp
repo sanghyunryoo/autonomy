@@ -4,12 +4,12 @@
 #include <string>
 
 #include <geometry_msgs/msg/pose2_d.hpp>
-#include <geometry_msgs/msg/twist.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
 #include "autonomy/msg/autonomy_state.hpp"
 #include "autonomy/msg/masked_height_scan.hpp"
+#include "core/msg/command_user.hpp"
 
 namespace autonomy
 {
@@ -25,7 +25,7 @@ public:
     declare_parameter<std::string>("current_pose_topic", "/localization/current_pose");
     declare_parameter<std::string>("target_pose_topic", "/planning/target_pose");
     declare_parameter<std::string>("height_scan_topic", "/elevation_mapping_node/local_terrain_map");
-    declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel");
+    declare_parameter<std::string>("command_user_topic", "/command_user");
     declare_parameter<std::string>("autonomy_status_topic", "/autonomy_manager/status");
     declare_parameter<double>("publish_rate_hz", 20.0);
 
@@ -63,8 +63,8 @@ public:
            msg->mode == autonomy::msg::AutonomyState::FSD);
         has_autonomy_state_ = true;
       });
-    cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>(
-      get_parameter("cmd_vel_topic").as_string(),
+    command_user_pub_ = create_publisher<core::msg::CommandUser>(
+      get_parameter("command_user_topic").as_string(),
       10);
     heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
       "/autonomy/heartbeat/rl_local_planner_node",
@@ -90,11 +90,21 @@ private:
       heartbeat.data = model_path_.empty() ? "ready:no_model" : "ready";
       // TODO: Load ONNX Runtime session and publish action from current pose,
       // target pose, and local height scan.
-      cmd_pub_->publish(geometry_msgs::msg::Twist{});
+      command_user_pub_->publish(makeStopCommand());
     } else {
       heartbeat.data = "waiting_for_inputs";
     }
     heartbeat_pub_->publish(heartbeat);
+  }
+
+  [[nodiscard]] core::msg::CommandUser makeStopCommand() const
+  {
+    core::msg::CommandUser command;
+    command.event.estop = false;
+    command.event.wake = false;
+    command.event.sleep = false;
+    command.event.rough_drive_toggle = false;
+    return command;
   }
 
   bool enabled_{true};
@@ -110,7 +120,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr target_pose_sub_;
   rclcpp::Subscription<autonomy::msg::MaskedHeightScan>::SharedPtr height_scan_sub_;
   rclcpp::Subscription<autonomy::msg::AutonomyState>::SharedPtr autonomy_sub_;
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<core::msg::CommandUser>::SharedPtr command_user_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

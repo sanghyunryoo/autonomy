@@ -97,7 +97,7 @@ add_executable(rl_local_planner_node
   src/rl_local_planner_node.cpp
 )
 target_include_directories(rl_local_planner_node PRIVATE include)
-ament_target_dependencies(rl_local_planner_node geometry_msgs rclcpp std_msgs)
+ament_target_dependencies(rl_local_planner_node core geometry_msgs rclcpp std_msgs)
 target_link_libraries(rl_local_planner_node "${cpp_typesupport_target}")
 
 add_executable(ai_detection_node

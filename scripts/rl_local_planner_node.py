@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import rclpy
-from geometry_msgs.msg import Pose2D, Twist
+from core.msg import CommandUser
+from geometry_msgs.msg import Pose2D
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -19,7 +20,7 @@ class RlLocalPlannerNode(Node):
         self.declare_parameter("current_pose_topic", "/localization/current_pose")
         self.declare_parameter("target_pose_topic", "/planning/target_pose")
         self.declare_parameter("height_scan_topic", "/elevation_mapping_node/local_terrain_map")
-        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("command_user_topic", "/command_user")
         self.declare_parameter("publish_rate_hz", 20.0)
 
         self._current_pose = None
@@ -37,7 +38,11 @@ class RlLocalPlannerNode(Node):
             self._on_height_scan,
             10,
         )
-        self._cmd_pub = self.create_publisher(Twist, self.get_parameter("cmd_vel_topic").value, 10)
+        self._command_user_pub = self.create_publisher(
+            CommandUser,
+            self.get_parameter("command_user_topic").value,
+            10,
+        )
         self._heartbeat_pub = self.create_publisher(String, "/autonomy/heartbeat/rl_local_planner_node", 10)
 
         period = 1.0 / max(1.0, float(self.get_parameter("publish_rate_hz").value))
@@ -59,7 +64,12 @@ class RlLocalPlannerNode(Node):
         if self._enabled and self._current_pose and self._target_pose and self._height_scan:
             heartbeat.data = "ready"
             # TODO: Load ONNX Runtime session and publish model action.
-            self._cmd_pub.publish(Twist())
+            command = CommandUser()
+            command.event.estop = False
+            command.event.wake = False
+            command.event.sleep = False
+            command.event.rough_drive_toggle = False
+            self._command_user_pub.publish(command)
         self._heartbeat_pub.publish(heartbeat)
 
 def main():

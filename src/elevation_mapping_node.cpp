@@ -333,8 +333,10 @@ core::msg::CommandFilter ElevationMappingNode::evaluateCommandFilter(
   const double move_right) const
 {
   core::msg::CommandFilter result;
-  result.allow_linear_vel_x = true;
-  result.allow_linear_vel_y = true;
+  result.allow_linear_vel_forward_x = true;
+  result.allow_linear_vel_backward_x = true;
+  result.allow_linear_vel_forward_y = true;
+  result.allow_linear_vel_backward_y = true;
 
   HeightMapFrame frame;
   {
@@ -345,20 +347,32 @@ core::msg::CommandFilter ElevationMappingNode::evaluateCommandFilter(
     frame = latest_height_map_;
   }
 
-  const auto forward = move_forward;
-  const auto right = move_right;
-  result.allow_linear_vel_x = isPathClear(
+  const auto forward = std::abs(move_forward);
+  const auto right = std::abs(move_right);
+  result.allow_linear_vel_forward_x = isPathClear(
     frame,
-    std::min(0.0, forward),
-    std::max(0.0, forward),
+    0.0,
+    forward,
     -forward_lateral_half_width_,
     forward_lateral_half_width_);
-  result.allow_linear_vel_y = isPathClear(
+  result.allow_linear_vel_backward_x = isPathClear(
+    frame,
+    -forward,
+    0.0,
+    -forward_lateral_half_width_,
+    forward_lateral_half_width_);
+  result.allow_linear_vel_forward_y = isPathClear(
     frame,
     -right_longitudinal_half_width_,
     right_longitudinal_half_width_,
-    std::min(0.0, right),
-    std::max(0.0, right));
+    0.0,
+    right);
+  result.allow_linear_vel_backward_y = isPathClear(
+    frame,
+    -right_longitudinal_half_width_,
+    right_longitudinal_half_width_,
+    -right,
+    0.0);
   return result;
 }
 
