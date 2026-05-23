@@ -241,13 +241,47 @@ autonomy_manager:
 rl_local_planner_node:
   ros__parameters:
     enabled: true
+    planner_backend: dwb_lite  # dwb_lite | mppi_lite | rl
     model_path: ""
     current_pose_topic: /localization/current_pose
     target_pose_topic: /planning/target_pose
     height_scan_topic: /elevation_mapping_node/local_terrain_map
+    command_filter_topic: /command_filter
     command_user_topic: /command_user
+    local_costmap_topic: ~/local_costmap
+    footprint_topic: ~/footprint
+    costmap_frame_id: base_link
+    footprint: [0.35, 0.25, 0.35, -0.25, -0.35, -0.25, -0.35, 0.25]
     autonomy_status_topic: /autonomy_manager/status
     publish_rate_hz: 20.0
+    goal_tolerance_xy: 0.15
+    goal_tolerance_yaw: 0.2
+    max_linear_x: 0.45
+    max_linear_y: 0.30
+    max_angular_z: 0.9
+    max_linear_accel: 0.6
+    max_angular_accel: 1.2
+    rollout_dt: 0.1
+    rollout_steps: 10
+    traversability_obstacle_floor_z: -0.47957
+    traversability_obstacle_height: 0.25
+    traversability_unknown_cost: 0.45
+    traversability_obstacle_cost: 1000.0
+    inflation_radius: 0.45
+    inflation_cost_scaling_factor: 3.0
+    footprint_padding: 0.02
+    dwb_samples_x: 7
+    dwb_samples_y: 5
+    dwb_samples_wz: 7
+    weight_goal_distance: 4.0
+    weight_goal_heading: 1.0
+    weight_terrain: 8.0
+    weight_smoothness: 0.4
+    weight_speed: 0.2
+    mppi_samples: 64
+    mppi_noise_x: 0.18
+    mppi_noise_y: 0.12
+    mppi_noise_wz: 0.35
 
 ai_detection_node:
   ros__parameters:
