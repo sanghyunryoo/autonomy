@@ -42,7 +42,8 @@ Jetson setup options:
   --with-desktop             Install ros-humble-desktop instead of ros-humble-ros-base.
   --headless                 Skip graphical RealSense examples/viewer.
   --no-cuda                  Build librealsense without CUDA acceleration.
-  --python                   Build pyrealsense2 Python bindings.
+  --python                   Build pyrealsense2 Python bindings. Default: ON for jetson.
+  --no-python                Skip pyrealsense2 Python bindings.
   --skip-ros                 Do not install ROS 2 apt packages.
   --skip-librealsense        Do not build/install librealsense.
   --skip-realsense-ros       Do not clone/build realsense-ros.
@@ -195,7 +196,11 @@ build_librealsense="ON"
 build_realsense_ros="ON"
 use_cuda="ON"
 build_graphical="ON"
-build_python="OFF"
+if [[ "${mode}" == "jetson" ]]; then
+  build_python="ON"
+else
+  build_python="OFF"
+fi
 librealsense_ref="${LIBREALSENSE_REF:-v2.57.7}"
 librealsense_src_dir="${LIBREALSENSE_SRC_DIR:-${HOME}/librealsense}"
 realsense_ros_ref="${REALSENSE_ROS_REF:-4.57.7}"
@@ -272,6 +277,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --python)
       build_python="ON"
+      shift
+      ;;
+    --no-python)
+      build_python="OFF"
       shift
       ;;
     --skip-ros)
@@ -540,7 +549,68 @@ librealsense_installed() {
 }
 
 pyrealsense2_installed() {
-  python3 -c 'import pyrealsense2' >/dev/null 2>&1
+  local python="${PYTHON_EXECUTABLE:-python3}"
+  "${python}" -c 'import pyrealsense2' >/dev/null 2>&1
+}
+
+pyrealsense2_module_dir() {
+  local python="${PYTHON_EXECUTABLE:-python3}"
+  local py_version
+  py_version="$("${python}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+
+  local candidate
+  for candidate in \
+    "/usr/local/lib/python${py_version}/dist-packages" \
+    "/usr/local/lib/python${py_version}/site-packages" \
+    "/usr/local/lib/python${py_version}" \
+    "/usr/local/lib"; do
+    if [[ -d "${candidate}/pyrealsense2" ]] || compgen -G "${candidate}/pyrealsense2*.so" >/dev/null; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+
+  local module_path
+  module_path="$(find /usr/local/lib -maxdepth 4 \( -type d -name pyrealsense2 -o -type f -name 'pyrealsense2*.so' \) -print -quit 2>/dev/null || true)"
+  if [[ -n "${module_path}" ]]; then
+    dirname "${module_path}"
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_pyrealsense2_python_path() {
+  if pyrealsense2_installed; then
+    return 0
+  fi
+
+  local python="${PYTHON_EXECUTABLE:-python3}"
+  local module_dir
+  module_dir="$(pyrealsense2_module_dir)" || return 1
+
+  local purelib
+  purelib="$("${python}" -c 'import sysconfig; print(sysconfig.get_paths().get("purelib", ""))')"
+  [[ -n "${purelib}" ]] || return 1
+
+  log "Adding pyrealsense2 module path for ${python}: ${module_dir}"
+  sudo mkdir -p "${purelib}"
+  printf '%s\n' "${module_dir}" | sudo tee "${purelib}/autonomy_pyrealsense2.pth" >/dev/null
+}
+
+verify_pyrealsense2_binding() {
+  if [[ "${build_python}" != "ON" ]]; then
+    return
+  fi
+
+  local python="${PYTHON_EXECUTABLE:-python3}"
+  ensure_pyrealsense2_python_path || true
+  if pyrealsense2_installed; then
+    log "pyrealsense2 Python binding is available for ${python}"
+    return
+  fi
+
+  die "pyrealsense2 was requested but is still not importable with ${python}. Re-run with --clean, or check the librealsense Python binding install path."
 }
 
 build_librealsense_from_source() {
@@ -600,9 +670,11 @@ build_librealsense_from_source() {
   )
 
   if [[ "${build_python}" == "ON" ]]; then
+    local python_executable="${PYTHON_EXECUTABLE:-$(command -v python3)}"
     cmake_args+=(
       -DBUILD_PYTHON_BINDINGS=ON
-      -DPYTHON_EXECUTABLE="$(command -v python3)"
+      -DPYTHON_EXECUTABLE="${python_executable}"
+      -DPython3_EXECUTABLE="${python_executable}"
     )
   fi
 
@@ -625,6 +697,7 @@ build_librealsense_from_source() {
   log "Installing librealsense"
   sudo cmake --install .
   sudo ldconfig
+  verify_pyrealsense2_binding
 }
 
 source_ros() {
@@ -959,6 +1032,10 @@ Recommended checks:
   source ${workspace_dir}/install/setup.bash
   rs-enumerate-devices
   ros2 launch realsense2_camera rs_launch.py
+
+Note:
+  realsense-viewer needs a local desktop OpenGL context. On SSH/headless Jetson
+  sessions, use rs-enumerate-devices and ROS topics to verify the camera.
 
 Build autonomy again:
   ${workspace_dir}/src/autonomy/scripts/build.sh jetson --skip-ros --skip-librealsense --skip-realsense-ros
