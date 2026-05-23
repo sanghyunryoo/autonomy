@@ -16,3 +16,4 @@ int8 current_mode
 bool enable_ai
 bool segmentation
 string message
+    

@@ -27,7 +27,6 @@ DEFAULT_STREAM = {
 
 DEFAULT_MERGE_PARAMETERS = {
     "target_frame": "4w4l/base_link",
-    "publish_static_tf": True,
     "publish_rate_hz": 20.0,
     "max_cloud_age_sec": 0.0,
     "depth_filter": {
@@ -177,7 +176,7 @@ def quote(value: str) -> str:
     return f'"{escaped}"'
 
 
-def render_mapping(camera_links: list[CameraLink]) -> str:
+def render_mapping(camera_links: list[CameraLink], urdf_path: Path) -> str:
     lines = [
         "# Camera role, USB port, topic, and point cloud merge map.",
         "# Auto-generated from URDF camera links.",
@@ -267,10 +266,14 @@ def render_mapping(camera_links: list[CameraLink]) -> str:
     lines.extend(
         [
             "",
+            "robot_state_publisher:",
+            "  ros__parameters:",
+            "    enabled: true",
+            f"    urdf_path: src/autonomy/resources/urdf/{urdf_path.name}",
+            "",
             "pointcloud_merge_node:",
             "  ros__parameters:",
             f"    target_frame: {DEFAULT_MERGE_PARAMETERS['target_frame']}",
-            f"    publish_static_tf: {str(DEFAULT_MERGE_PARAMETERS['publish_static_tf']).lower()}",
             f"    publish_rate_hz: {DEFAULT_MERGE_PARAMETERS['publish_rate_hz']}",
             f"    max_cloud_age_sec: {DEFAULT_MERGE_PARAMETERS['max_cloud_age_sec']}",
             "",
@@ -312,7 +315,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     camera_links = find_camera_links(args.urdf)
-    text = render_mapping(camera_links)
+    text = render_mapping(camera_links, args.urdf)
 
     if args.dry_run:
         print(text, end="")

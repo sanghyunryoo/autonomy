@@ -1089,4 +1089,32 @@
     <child
       link="A_camera_link" />
   </joint>
+  <link
+    name="livox_frame">
+    <inertial>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.1" />
+      <inertia
+        ixx="0.0001"
+        ixy="0"
+        ixz="0"
+        iyy="0.0001"
+        iyz="0"
+        izz="0.0001" />
+    </inertial>
+  </link>
+  <joint
+    name="livox_joint"
+    type="fixed">
+    <origin
+      xyz="-0.08 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="A_camera_link" />
+    <child
+      link="livox_frame" />
+  </joint>
 </robot>

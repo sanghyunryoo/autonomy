@@ -11,7 +11,6 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
-#include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
 #include "autonomy/msg/autonomy_state.hpp"
@@ -27,8 +26,6 @@ struct CameraSource
   std::string camera_info_topic;
   std::string mount_frame;
   std::string optical_frame;
-  std::vector<double> mount_to_optical_xyz{0.0, 0.0, 0.0};
-  std::vector<double> mount_to_optical_rpy{-1.5707963267948966, 0.0, -1.5707963267948966};
 };
 
 class PointCloudMergerNode final : public rclcpp::Node
@@ -45,7 +42,6 @@ private:
 
   void loadParameters();
   void createIo();
-  void publishStaticTransformsFromUrdf();
   void publishHeartbeat();
   void onAutonomyState(autonomy::msg::AutonomyState::SharedPtr msg);
   void onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg);
@@ -62,8 +58,6 @@ private:
     const rclcpp::Time & now);
 
   std::string target_frame_{"base_link"};
-  std::string urdf_path_;
-  std::string static_tf_frame_prefix_;
   double publish_rate_hz_{20.0};
   double max_cloud_age_sec_{0.20};
   double min_range_{0.05};
@@ -87,7 +81,6 @@ private:
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
-  tf2_ros::StaticTransformBroadcaster static_tf_broadcaster_;
 };
 
 }  // namespace autonomy

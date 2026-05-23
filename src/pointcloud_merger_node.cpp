@@ -2,19 +2,14 @@
 
 #include <algorithm>
 #include <chrono>
-#include <fstream>
 #include <cmath>
 #include <limits>
-#include <regex>
 #include <stdexcept>
-#include <sstream>
 #include <utility>
 
-#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <tf2/exceptions.h>
-#include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -25,20 +20,15 @@ namespace autonomy
 PointCloudMergerNode::PointCloudMergerNode(const rclcpp::NodeOptions & options)
 : Node("pointcloud_merge_node", options),
   tf_buffer_(get_clock()),
-  tf_listener_(tf_buffer_),
-  static_tf_broadcaster_(this)
+  tf_listener_(tf_buffer_)
 {
   loadParameters();
-  publishStaticTransformsFromUrdf();
   createIo();
 }
 
 void PointCloudMergerNode::loadParameters()
 {
   target_frame_ = declare_parameter<std::string>("target_frame", target_frame_);
-  urdf_path_ = declare_parameter<std::string>("urdf_path", urdf_path_);
-  static_tf_frame_prefix_ =
-    declare_parameter<std::string>("static_tf_frame_prefix", static_tf_frame_prefix_);
   publish_rate_hz_ = declare_parameter<double>("publish_rate_hz", publish_rate_hz_);
   max_cloud_age_sec_ = declare_parameter<double>("max_cloud_age_sec", max_cloud_age_sec_);
   min_range_ = declare_parameter<double>("depth_filter.min_range", min_range_);
@@ -68,10 +58,6 @@ void PointCloudMergerNode::loadParameters()
       "cameras." + name + ".mount_frame", "");
     camera.optical_frame = declare_parameter<std::string>(
       "cameras." + name + ".optical_frame", "");
-    camera.mount_to_optical_xyz = declare_parameter<std::vector<double>>(
-      "cameras." + name + ".mount_to_optical_xyz", camera.mount_to_optical_xyz);
-    camera.mount_to_optical_rpy = declare_parameter<std::vector<double>>(
-      "cameras." + name + ".mount_to_optical_rpy", camera.mount_to_optical_rpy);
 
     if (!camera.enabled) {
       RCLCPP_INFO(get_logger(), "Camera '%s' is disabled; skipping subscriptions and merge", name.c_str());
@@ -94,216 +80,7 @@ bool isUsableStamp(const rclcpp::Time & stamp)
   return stamp.nanoseconds() > 0;
 }
 
-std::string readFile(const std::string & path)
-{
-  std::ifstream file(path);
-  if (!file.is_open()) {
-    throw std::runtime_error("Failed to open URDF: " + path);
-  }
-
-  std::ostringstream stream;
-  stream << file.rdbuf();
-  return stream.str();
-}
-
-std::string addFramePrefix(const std::string & prefix, const std::string & frame)
-{
-  if (prefix.empty() || frame.empty() || frame.find('/') != std::string::npos) {
-    return frame;
-  }
-  return prefix + frame;
-}
-
-std::string unprefixedFrame(const std::string & frame)
-{
-  const auto slash = frame.rfind('/');
-  if (slash == std::string::npos) {
-    return frame;
-  }
-  return frame.substr(slash + 1);
-}
-
-std::vector<double> parseDoubles(const std::string & text, std::size_t expected_count)
-{
-  std::istringstream stream(text);
-  std::vector<double> values;
-  double value = 0.0;
-
-  while (stream >> value) {
-    values.push_back(value);
-  }
-
-  if (values.size() != expected_count) {
-    throw std::runtime_error("Invalid numeric vector in URDF: " + text);
-  }
-
-  return values;
-}
-
-bool sameFrame(const std::string & lhs, const std::string & rhs)
-{
-  return unprefixedFrame(lhs) == unprefixedFrame(rhs);
-}
-
-tf2::Transform transformFromXyzRpy(
-  const std::vector<double> & xyz,
-  const std::vector<double> & rpy)
-{
-  if (xyz.size() != 3 || rpy.size() != 3) {
-    throw std::runtime_error("mount_to_optical_xyz/rpy must each contain exactly 3 values");
-  }
-
-  tf2::Quaternion quaternion;
-  quaternion.setRPY(rpy[0], rpy[1], rpy[2]);
-  return tf2::Transform(quaternion, tf2::Vector3(xyz[0], xyz[1], xyz[2]));
-}
-
-geometry_msgs::msg::TransformStamped makeTransformStamped(
-  const std::string & parent,
-  const std::string & child,
-  const tf2::Transform & transform,
-  const rclcpp::Time & stamp)
-{
-  geometry_msgs::msg::TransformStamped msg;
-  msg.header.stamp = stamp;
-  msg.header.frame_id = parent;
-  msg.child_frame_id = child;
-  msg.transform = tf2::toMsg(transform);
-  return msg;
-}
-
-struct FixedJointTransform
-{
-  std::string parent_frame;
-  std::string child_frame;
-  tf2::Transform transform;
-};
-
-std::vector<FixedJointTransform> parseFixedJointTransformsFromUrdf(const std::string & urdf)
-{
-  const std::regex fixed_joint_re(
-    R"(<joint[^>]*type\s*=\s*["']fixed["'][^>]*>([\s\S]*?)</joint>)",
-    std::regex::icase);
-  const std::regex origin_re(
-    R"(<origin[^>]*xyz\s*=\s*["']([^"']+)["'][^>]*rpy\s*=\s*["']([^"']+)["'][^>]*/?>)",
-    std::regex::icase);
-  const std::regex parent_re(
-    R"(<parent[^>]*link\s*=\s*["']([^"']+)["'][^>]*/?>)",
-    std::regex::icase);
-  const std::regex child_re(
-    R"(<child[^>]*link\s*=\s*["']([^"']+)["'][^>]*/?>)",
-    std::regex::icase);
-
-  std::vector<FixedJointTransform> joints;
-  auto begin = std::sregex_iterator(urdf.begin(), urdf.end(), fixed_joint_re);
-  auto end = std::sregex_iterator();
-
-  for (auto it = begin; it != end; ++it) {
-    const auto joint_xml = (*it)[1].str();
-
-    std::smatch origin_match;
-    std::smatch parent_match;
-    std::smatch child_match;
-
-    if (!std::regex_search(joint_xml, origin_match, origin_re) ||
-      !std::regex_search(joint_xml, parent_match, parent_re) ||
-      !std::regex_search(joint_xml, child_match, child_re))
-    {
-      continue;
-    }
-
-    const auto xyz = parseDoubles(origin_match[1].str(), 3);
-    const auto rpy = parseDoubles(origin_match[2].str(), 3);
-
-    tf2::Quaternion quaternion;
-    quaternion.setRPY(rpy[0], rpy[1], rpy[2]);
-    joints.push_back({
-      parent_match[1].str(),
-      child_match[1].str(),
-      tf2::Transform(quaternion, tf2::Vector3(xyz[0], xyz[1], xyz[2])),
-    });
-  }
-
-  return joints;
-}
-
-void appendPrefixedTransform(
-  const geometry_msgs::msg::TransformStamped & transform,
-  const std::string & prefix,
-  std::vector<geometry_msgs::msg::TransformStamped> & transforms)
-{
-  if (prefix.empty()) {
-    transforms.push_back(transform);
-    return;
-  }
-
-  auto prefixed_transform = transform;
-  prefixed_transform.header.frame_id = addFramePrefix(prefix, transform.header.frame_id);
-  prefixed_transform.child_frame_id = addFramePrefix(prefix, transform.child_frame_id);
-  transforms.push_back(prefixed_transform);
-}
-
 }  // namespace
-
-void PointCloudMergerNode::publishStaticTransformsFromUrdf()
-{
-  if (urdf_path_.empty()) {
-    RCLCPP_WARN(get_logger(), "No urdf_path provided; static camera TF will not be published");
-    return;
-  }
-
-  const auto joints = parseFixedJointTransformsFromUrdf(readFile(urdf_path_));
-  std::vector<geometry_msgs::msg::TransformStamped> transforms;
-
-  for (const auto & joint : joints) {
-    std::vector<geometry_msgs::msg::TransformStamped> transforms_for_joint;
-    bool replaced_by_mount_frame = false;
-
-    for (const auto & camera : cameras_) {
-      if (camera.mount_frame.empty() || camera.optical_frame.empty() ||
-        sameFrame(camera.mount_frame, camera.optical_frame) ||
-        !sameFrame(camera.optical_frame, joint.child_frame))
-      {
-        continue;
-      }
-
-      const auto mount_to_optical =
-        transformFromXyzRpy(camera.mount_to_optical_xyz, camera.mount_to_optical_rpy);
-      const auto parent_to_mount = joint.transform * mount_to_optical.inverse();
-
-      transforms_for_joint.push_back(makeTransformStamped(
-        joint.parent_frame, camera.mount_frame, parent_to_mount, now()));
-      transforms_for_joint.push_back(makeTransformStamped(
-        camera.mount_frame, camera.optical_frame, mount_to_optical, now()));
-      replaced_by_mount_frame = true;
-      break;
-    }
-
-    if (!replaced_by_mount_frame) {
-      transforms_for_joint.push_back(makeTransformStamped(
-        joint.parent_frame,
-        joint.child_frame,
-        joint.transform,
-        now()));
-    }
-
-    for (const auto & transform : transforms_for_joint) {
-      appendPrefixedTransform(transform, static_tf_frame_prefix_, transforms);
-    }
-  }
-
-  if (!transforms.empty()) {
-    const std::string prefix_log = static_tf_frame_prefix_.empty() ?
-      "" : " with frame prefix '" + static_tf_frame_prefix_ + "'";
-    static_tf_broadcaster_.sendTransform(transforms);
-    RCLCPP_INFO(
-      get_logger(),
-      "Published %zu static transforms from %s%s",
-      transforms.size(),
-      urdf_path_.c_str(),
-      prefix_log.c_str());
-  }
-}
 
 void PointCloudMergerNode::createIo()
 {

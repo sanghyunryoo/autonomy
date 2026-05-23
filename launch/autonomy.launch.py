@@ -46,6 +46,21 @@ def _resolve_node_paths(params, keys):
     return resolved
 
 
+def _robot_state_publisher_node(data, use_sim_time):
+    params = _node_params(data, "robot_state_publisher") or {}
+    if not _parse_bool(params.pop("enabled", True), default=True):
+        return None
+    urdf_path = _resolve_package_path(params.pop("urdf_path", "src/autonomy/resources/urdf/f16.urdf"))
+    with open(urdf_path, "r", encoding="utf-8") as urdf_file:
+        robot_description = urdf_file.read()
+    return _worker_node(
+        "robot_state_publisher",
+        [params, use_sim_time, {"robot_description": robot_description}],
+        name="robot_state_publisher",
+        package="robot_state_publisher",
+    )
+
+
 def _parse_bool(value, default=True):
     if value is None:
         return default
@@ -217,7 +232,8 @@ def _frame_prefix_from_target(target_frame):
 def _frame_prefix(data):
     params = data.get("pointcloud_merge_node", {}).get("ros__parameters", {})
     target_frame = str(params.get("target_frame", "base_link"))
-    return str(params.get("static_tf_frame_prefix", _frame_prefix_from_target(target_frame)))
+    default_prefix = _frame_prefix_from_target(target_frame)
+    return str(params.get("frame_prefix", params.get("static_tf_frame_prefix", default_prefix)))
 
 
 def _merge_frame(frame, prefix):
@@ -244,7 +260,9 @@ def _camera_base_topic(binding, space):
 
 def _merge_params(data, space):
     params = data.get("pointcloud_merge_node", {}).get("ros__parameters", {}).copy()
-    prefix = str(params.pop("static_tf_frame_prefix", _frame_prefix(data)))
+    params.pop("static_tf_frame_prefix", None)
+    params.pop("urdf_path", None)
+    prefix = str(params.pop("frame_prefix", _frame_prefix(data)))
 
     camera_names = []
     cameras = {}
@@ -261,18 +279,10 @@ def _merge_params(data, space):
             "camera_info_topic": str(binding.get("camera_info_topic", f"/{role}/depth/camera_info")),
             "mount_frame": _merge_frame(binding.get("mount_frame", ""), prefix),
             "optical_frame": _merge_frame(binding.get("optical_frame", ""), prefix),
-            "mount_to_optical_xyz": binding.get("mount_to_optical_xyz", [0.0, 0.0, 0.0]),
-            "mount_to_optical_rpy": binding.get(
-                "mount_to_optical_rpy",
-                [-1.5707963267948966, 0.0, -1.5707963267948966],
-            ),
         }
 
     params["camera_names"] = camera_names
     params["cameras"] = cameras
-    params["static_tf_frame_prefix"] = prefix
-    if "urdf_path" in params:
-        params["urdf_path"] = _resolve_package_path(params["urdf_path"])
     return params
 
 
@@ -468,6 +478,10 @@ def _make_stack(context, *args, **kwargs):
     actions = [
         LogInfo(msg="Autonomy stack starting in IDLE. Use /autonomy_manager/set_mode to change modes."),
     ]
+
+    robot_state_publisher = _robot_state_publisher_node(data, use_sim_time)
+    if robot_state_publisher is not None:
+        actions.append(robot_state_publisher)
 
     if not simulation:
         actions.append(_worker_node(
