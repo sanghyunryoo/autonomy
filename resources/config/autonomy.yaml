@@ -240,7 +240,7 @@ autonomy_manager:
       adas: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node]
       fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, livox_monitor_node, point_lio_monitor_node, rl_local_planner_node, global_planner_node]
       tracking: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
-      mapping: [livox_monitor_node, point_lio_monitor_node]
+      mapping: [livox_monitor_node, point_lio_monitor_node, point_lio_map_saver_node]
 
 rl_local_planner_node:
   ros__parameters:
@@ -345,6 +345,7 @@ global_planner_node:
     current_pose_topic: /localization/current_pose
     goal_topic: /goal_pose
     map_topic: /planning/global_costmap
+    map_file: src/autonomy/resources/map/global_costmap.yaml
     path_topic: /planning/global_path
     target_pose_topic: /planning/target_pose
     use_example_map: true
@@ -387,6 +388,28 @@ point_lio_monitor_node:
     odometry_topic: /aft_mapped_to_init
     detection_timeout_sec: 1.0
     publish_rate_hz: 5.0
+
+point_lio_map_saver_node:
+  ros__parameters:
+    enabled: true
+    cloud_topic: /cloud_registered
+    map_topic: /planning/global_costmap
+    map_dir: src/autonomy/resources/map
+    map_basename: global_costmap
+    frame_id: map
+    respect_autonomy_mode: true
+    autonomy_status_topic: /autonomy_manager/status
+    active_modes: [MAPPING]
+    resolution: 0.1
+    width: 400
+    height: 400
+    origin_x: -20.0
+    origin_y: -20.0
+    z_min: -0.4
+    z_max: 2.0
+    occupied_count_threshold: 2
+    publish_rate_hz: 1.0
+    save_period_sec: 10.0
 
 point_lio:
   ros__parameters:

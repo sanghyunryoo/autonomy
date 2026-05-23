@@ -141,6 +141,13 @@ add_executable(point_lio_monitor_node
 target_include_directories(point_lio_monitor_node PRIVATE include)
 ament_target_dependencies(point_lio_monitor_node nav_msgs rclcpp std_msgs)
 
+add_executable(point_lio_map_saver_node
+  src/point_lio_map_saver_node.cpp
+)
+target_include_directories(point_lio_map_saver_node PRIVATE include)
+ament_target_dependencies(point_lio_map_saver_node nav_msgs rclcpp sensor_msgs std_msgs)
+target_link_libraries(point_lio_map_saver_node "${cpp_typesupport_target}")
+
 add_executable(tracking_follower_node
   src/tracking_follower_node.cpp
 )
@@ -157,6 +164,7 @@ install(TARGETS
   livox_monitor_node
   rl_local_planner_node
   point_lio_monitor_node
+  point_lio_map_saver_node
   tracking_follower_node
   vio_pose_adapter_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}

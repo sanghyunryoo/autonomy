@@ -428,7 +428,7 @@ def _managed_nodes(simulation, enable_vio):
     fsd_stack = adas_stack + ["point_lio_monitor_node", "global_planner_node"]
     if not simulation:
         fsd_stack = ["livox_monitor_node"] + fsd_stack
-    mapping_stack = ["point_lio_monitor_node"]
+    mapping_stack = ["point_lio_monitor_node", "point_lio_map_saver_node"]
     if not simulation:
         mapping_stack = ["livox_monitor_node"] + mapping_stack
     tracking_stack = base + (["ai_detection_node", "tracking_follower_node"] if enable_vio else [])
@@ -504,6 +504,10 @@ def _make_stack(context, *args, **kwargs):
             "point_lio_monitor_node",
             [_node_params(data, "point_lio_monitor_node"), use_sim_time, {"simulation": False}],
         ),
+        _worker_node(
+            "point_lio_map_saver_node",
+            [_node_params(data, "point_lio_map_saver_node"), use_sim_time, {"map_dir": map_dir}],
+        ),
     ])
     point_lio_params = _node_params(data, "point_lio") or {}
     profile_key = "simulation_launch_file" if simulation else "real_launch_file"
@@ -540,7 +544,9 @@ def _make_stack(context, *args, **kwargs):
             ),
             _worker_node(
                 "global_planner_node",
-                [_node_params(data, "global_planner_node"), use_sim_time, {"enabled": True}],
+                [_resolve_node_paths(_node_params(data, "global_planner_node"), ("map_file",)),
+                 use_sim_time,
+                 {"enabled": True}],
             ),
             _worker_node(
                 "tracking_follower_node",

@@ -2,10 +2,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <queue>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -66,6 +69,7 @@ public:
     declare_parameter<std::string>("current_pose_topic", "/localization/current_pose");
     declare_parameter<std::string>("goal_topic", "/goal_pose");
     declare_parameter<std::string>("map_topic", "/planning/global_costmap");
+    declare_parameter<std::string>("map_file", "");
     declare_parameter<std::string>("path_topic", "/planning/global_path");
     declare_parameter<std::string>("target_pose_topic", "/planning/target_pose");
     declare_parameter<bool>("use_example_map", true);
@@ -90,6 +94,9 @@ public:
       map_ = createExampleMap();
       has_map_ = true;
       map_pub_->publish(map_);
+    } else if (loadMapFromFile()) {
+      has_map_ = true;
+      map_pub_->publish(map_);
     }
 
     const auto period = std::chrono::duration<double>(1.0 / std::max(0.1, publish_rate_hz_));
@@ -104,6 +111,7 @@ private:
     enabled_ = get_parameter("enabled").as_bool();
     planner_backend_ = get_parameter("planner_backend").as_string();
     use_example_map_ = get_parameter("use_example_map").as_bool();
+    map_file_ = get_parameter("map_file").as_string();
     map_frame_id_ = get_parameter("map_frame_id").as_string();
     example_map_width_ = static_cast<int>(get_parameter("example_map_width").as_int());
     example_map_height_ = static_cast<int>(get_parameter("example_map_height").as_int());
@@ -517,6 +525,117 @@ private:
     map.data = inflated;
   }
 
+  [[nodiscard]] bool loadMapFromFile()
+  {
+    if (map_file_.empty()) {
+      return false;
+    }
+
+    const std::filesystem::path yaml_path(map_file_);
+    std::ifstream yaml(yaml_path);
+    if (!yaml) {
+      RCLCPP_WARN(get_logger(), "Global map file does not exist yet: %s", map_file_.c_str());
+      return false;
+    }
+
+    std::string image_name;
+    double resolution = 0.0;
+    double origin_x = 0.0;
+    double origin_y = 0.0;
+    std::string line;
+    while (std::getline(yaml, line)) {
+      if (line.rfind("image:", 0) == 0) {
+        image_name = trim(line.substr(6));
+      } else if (line.rfind("resolution:", 0) == 0) {
+        resolution = std::stod(trim(line.substr(11)));
+      } else if (line.rfind("origin:", 0) == 0) {
+        parseOrigin(line, origin_x, origin_y);
+      }
+    }
+
+    if (image_name.empty() || resolution <= 0.0) {
+      RCLCPP_WARN(get_logger(), "Invalid global map yaml: %s", map_file_.c_str());
+      return false;
+    }
+
+    std::filesystem::path image_path(image_name);
+    if (image_path.is_relative()) {
+      image_path = yaml_path.parent_path() / image_path;
+    }
+    return loadPgm(image_path, resolution, origin_x, origin_y);
+  }
+
+  [[nodiscard]] static std::string trim(const std::string & value)
+  {
+    const auto first = value.find_first_not_of(" \t\"'");
+    if (first == std::string::npos) {
+      return "";
+    }
+    const auto last = value.find_last_not_of(" \t\"'");
+    return value.substr(first, last - first + 1);
+  }
+
+  static void parseOrigin(const std::string & line, double & x, double & y)
+  {
+    const auto begin = line.find('[');
+    const auto end = line.find(']');
+    if (begin == std::string::npos || end == std::string::npos || end <= begin) {
+      return;
+    }
+    std::string values = line.substr(begin + 1, end - begin - 1);
+    std::replace(values.begin(), values.end(), ',', ' ');
+    std::istringstream stream(values);
+    stream >> x >> y;
+  }
+
+  [[nodiscard]] bool loadPgm(
+    const std::filesystem::path & image_path,
+    const double resolution,
+    const double origin_x,
+    const double origin_y)
+  {
+    std::ifstream pgm(image_path, std::ios::binary);
+    if (!pgm) {
+      RCLCPP_WARN(get_logger(), "Global map image does not exist: %s", image_path.string().c_str());
+      return false;
+    }
+
+    std::string magic;
+    int width = 0;
+    int height = 0;
+    int max_value = 0;
+    pgm >> magic >> width >> height >> max_value;
+    pgm.get();
+    if (magic != "P5" || width <= 0 || height <= 0 || max_value <= 0) {
+      RCLCPP_WARN(get_logger(), "Unsupported PGM map image: %s", image_path.string().c_str());
+      return false;
+    }
+
+    nav_msgs::msg::OccupancyGrid loaded;
+    loaded.header.frame_id = map_frame_id_;
+    loaded.header.stamp = now();
+    loaded.info.width = static_cast<std::uint32_t>(width);
+    loaded.info.height = static_cast<std::uint32_t>(height);
+    loaded.info.resolution = static_cast<float>(resolution);
+    loaded.info.origin.position.x = origin_x;
+    loaded.info.origin.position.y = origin_y;
+    loaded.info.origin.orientation.w = 1.0;
+    loaded.data.assign(static_cast<std::size_t>(width) * height, 0);
+
+    for (int image_row = 0; image_row < height; ++image_row) {
+      for (int col = 0; col < width; ++col) {
+        unsigned char pixel = 254;
+        pgm.read(reinterpret_cast<char *>(&pixel), 1);
+        const int map_row = height - 1 - image_row;
+        const auto index = static_cast<std::size_t>(map_row) * width + static_cast<std::size_t>(col);
+        loaded.data[index] = pixel < 65 ? 100 : 0;
+      }
+    }
+
+    map_ = loaded;
+    return true;
+  }
+
   bool enabled_{false};
   bool use_example_map_{true};
   bool allow_diagonal_{true};
@@ -526,6 +645,7 @@ private:
   bool needs_replan_{true};
   std::string planner_backend_{"astar"};
   std::string map_frame_id_{"map"};
+  std::string map_file_;
   std::string unknown_policy_{"avoid"};
   int example_map_width_{120};
   int example_map_height_{80};
