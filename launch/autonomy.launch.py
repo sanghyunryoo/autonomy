@@ -3,7 +3,8 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -82,6 +83,49 @@ def _node_params(data, node_name):
     return _sanitize_launch_parameters(
         data.get(node_name, {}).get("ros__parameters", {}).copy()
     )
+
+
+def _external_launch(data, node_name, default_package, default_launch_file, parameters=None):
+    params = _node_params(data, node_name) or {}
+    if not _parse_bool(params.get("enabled", True), default=True):
+        return []
+    package = str(params.get("package", default_package))
+    launch_file = str(params.get("launch_file", default_launch_file))
+    try:
+        package_share = Path(get_package_share_directory(package))
+    except Exception as exc:
+        return [LogInfo(msg=f"{node_name}: package '{package}' not found, skipping external launch ({exc})")]
+    launch_path = package_share / "launch" / launch_file
+    if not launch_path.exists():
+        return [LogInfo(msg=f"{node_name}: launch file not found: {launch_path}")]
+
+    launch_arguments = params.get("launch_arguments", {})
+    if not isinstance(launch_arguments, dict):
+        launch_arguments = {}
+    if parameters:
+        launch_arguments = {**launch_arguments, **parameters}
+    return [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(str(launch_path)),
+            launch_arguments={str(k): str(v) for k, v in launch_arguments.items()}.items(),
+        )
+    ]
+
+
+def _point_lio_launch_arguments(data, simulation):
+    params = _node_params(data, "point_lio") or {}
+    launch_arguments = params.get("launch_arguments", {})
+    if not isinstance(launch_arguments, dict):
+        launch_arguments = {}
+    launch_arguments = launch_arguments.copy()
+
+    sim_lidar_topic = params.get("lidar_topic_simulation")
+    real_lidar_topic = params.get("lidar_topic_real")
+    if simulation and sim_lidar_topic:
+        launch_arguments["lid_topic"] = sim_lidar_topic
+    elif not simulation and real_lidar_topic:
+        launch_arguments["lid_topic"] = real_lidar_topic
+    return launch_arguments
 
 
 def _binding_space(simulation):
@@ -381,13 +425,20 @@ def _managed_nodes(simulation, enable_vio):
     if not simulation:
         base = ["realsense_usb_mapper"] + base
     adas_stack = base + (["openvins_vio_node", "rl_local_planner_node"] if enable_vio else [])
+    fsd_stack = adas_stack + ["point_lio_monitor_node", "global_planner_node"]
+    if not simulation:
+        fsd_stack = ["livox_monitor_node"] + fsd_stack
+    mapping_stack = ["point_lio_monitor_node"]
+    if not simulation:
+        mapping_stack = ["livox_monitor_node"] + mapping_stack
     tracking_stack = base + (["ai_detection_node", "tracking_follower_node"] if enable_vio else [])
 
     return {
         "managed_nodes.drive": base,
         "managed_nodes.adas": adas_stack,
-        "managed_nodes.fsd": adas_stack + (["global_planner_node"] if enable_vio else []),
+        "managed_nodes.fsd": fsd_stack,
         "managed_nodes.tracking": tracking_stack,
+        "managed_nodes.mapping": mapping_stack,
     }
 
 
@@ -440,6 +491,30 @@ def _make_stack(context, *args, **kwargs):
             [_node_params(data, "elevation_mapping_node"), use_sim_time, {"operation_mode": STACK_MODE}],
         ),
     ])
+
+    if not simulation:
+        actions.append(_worker_node(
+            "livox_monitor_node",
+            [_node_params(data, "livox_monitor_node"), use_sim_time, {"simulation": False}],
+        ))
+        actions.extend(_external_launch(data, "livox_driver", "livox_ros_driver2", "rviz_MID360_launch.py"))
+
+    actions.extend([
+        _worker_node(
+            "point_lio_monitor_node",
+            [_node_params(data, "point_lio_monitor_node"), use_sim_time, {"simulation": False}],
+        ),
+    ])
+    point_lio_params = _node_params(data, "point_lio") or {}
+    profile_key = "simulation_launch_file" if simulation else "real_launch_file"
+    default_point_lio_launch = str(point_lio_params.get(profile_key, "mapping_avia.launch.py"))
+    actions.extend(_external_launch(
+        data,
+        "point_lio",
+        "point_lio",
+        default_point_lio_launch,
+        _point_lio_launch_arguments(data, simulation),
+    ))
 
     if enable_adas_stack:
         actions.extend([

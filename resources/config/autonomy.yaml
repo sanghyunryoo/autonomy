@@ -15,6 +15,10 @@ operation_modes:
     camera_roles: [front, rear, adas]
     require_roles: [adas]
 
+  mapping:
+    camera_roles: []
+    require_roles: []
+
 camera_bindings:
   simulation:
     - role: adas
@@ -234,9 +238,9 @@ autonomy_manager:
       idle: []
       drive: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node]
       adas: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node]
-      fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node, global_planner_node]
+      fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, livox_monitor_node, point_lio_monitor_node, rl_local_planner_node, global_planner_node]
       tracking: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
-      mapping: []
+      mapping: [livox_monitor_node, point_lio_monitor_node]
 
 rl_local_planner_node:
   ros__parameters:
@@ -337,7 +341,60 @@ vio_pose_adapter_node:
 global_planner_node:
   ros__parameters:
     enabled: false
-    planner_type: placeholder
-    map_topic: /map
+    planner_backend: astar
+    current_pose_topic: /localization/current_pose
     goal_topic: /goal_pose
+    map_topic: /planning/global_costmap
     path_topic: /planning/global_path
+    target_pose_topic: /planning/target_pose
+    use_example_map: true
+    map_frame_id: map
+    example_map_width: 120
+    example_map_height: 80
+    example_map_resolution: 0.1
+    example_map_origin_x: -2.0
+    example_map_origin_y: -4.0
+    allow_diagonal: true
+    path_smoothing: true
+    local_target_lookahead: 1.0
+    lethal_cost_threshold: 100
+    unknown_policy: avoid
+    unknown_cost: 80
+    cost_weight: 3.0
+    publish_rate_hz: 2.0
+
+livox_monitor_node:
+  ros__parameters:
+    enabled: true
+    simulation: false
+    pointcloud_topic: /livox/lidar
+    required_frame_contains: ""
+    detection_timeout_sec: 1.0
+    min_points: 1
+    publish_rate_hz: 5.0
+
+livox_driver:
+  ros__parameters:
+    enabled: true
+    package: livox_ros_driver2
+    launch_file: rviz_MID360_launch.py
+    launch_arguments: {}
+
+point_lio_monitor_node:
+  ros__parameters:
+    enabled: true
+    simulation: false
+    odometry_topic: /aft_mapped_to_init
+    detection_timeout_sec: 1.0
+    publish_rate_hz: 5.0
+
+point_lio:
+  ros__parameters:
+    enabled: true
+    package: point_lio
+    real_launch_file: mapping_avia.launch.py
+    simulation_launch_file: mapping_velody16.launch.py
+    lidar_topic_real: /livox/lidar
+    lidar_topic_simulation: /robot_4w4l/livox/lidar
+    launch_arguments:
+      lid_topic: /livox/lidar

@@ -47,6 +47,10 @@ Jetson setup options:
   --skip-ros                 Do not install ROS 2 apt packages.
   --skip-librealsense        Do not build/install librealsense.
   --skip-realsense-ros       Do not clone/build realsense-ros.
+  --with-livox               Prepare/build Livox SDK2 and livox_ros_driver2.
+  --skip-livox               Skip Livox SDK2 and livox_ros_driver2 setup.
+  --with-point-lio           Prepare/build Point-LIO ROS2.
+  --skip-point-lio           Skip Point-LIO ROS2 setup.
   --librealsense-ref <ref>   librealsense tag/branch/commit. Default: v2.57.7.
   --librealsense-source-dir <path>
                              librealsense source directory. Default: $HOME/librealsense.
@@ -67,6 +71,11 @@ Environment:
   OPENVINS_REPO              OpenVINS git repository. Default: https://github.com/rpng/open_vins.git.
   OPENVINS_VERSION           OpenVINS git branch/tag/commit. Default: master.
   SKIP_OPENVINS_CLONE        Set to 1 when OpenVINS is already in third_party/open_vins.
+  LIVOX_SDK2_REPO            Livox SDK2 repository. Default: https://github.com/Livox-SDK/Livox-SDK2.git.
+  LIVOX_ROS_DRIVER2_REPO     Livox ROS driver 2 repository. Default: https://github.com/Livox-SDK/livox_ros_driver2.git.
+  POINT_LIO_ROS2_REPO        Point-LIO ROS 2 repository. Default: https://github.com/dfloreaa/point_lio_ros2.git.
+  SKIP_LIVOX_CLONE           Set to 1 when Livox sources are already available.
+  SKIP_POINT_LIO_CLONE       Set to 1 when Point-LIO is already available.
   ALLOW_CONDA_BUILD_ENV      Set to 1 to keep conda paths in the build environment.
 EOF
 }
@@ -194,6 +203,12 @@ install_ros="ON"
 install_ros_desktop="OFF"
 build_librealsense="ON"
 build_realsense_ros="ON"
+if [[ "${mode}" == "jetson" ]]; then
+  build_livox="ON"
+else
+  build_livox="OFF"
+fi
+build_point_lio="ON"
 use_cuda="ON"
 build_graphical="ON"
 if [[ "${mode}" == "jetson" ]]; then
@@ -293,6 +308,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-realsense-ros)
       build_realsense_ros="OFF"
+      shift
+      ;;
+    --with-livox)
+      build_livox="ON"
+      shift
+      ;;
+    --skip-livox)
+      build_livox="OFF"
+      shift
+      ;;
+    --with-point-lio)
+      build_point_lio="ON"
+      shift
+      ;;
+    --skip-point-lio)
+      build_point_lio="OFF"
       shift
       ;;
     --librealsense-ref|--ref)
@@ -476,6 +507,8 @@ install_ros_packages() {
     "ros-${ros_distro}-image-transport"
     "ros-${ros_distro}-message-filters"
     "ros-${ros_distro}-nav-msgs"
+    "ros-${ros_distro}-pcl-conversions"
+    "ros-${ros_distro}-pcl-ros"
     "ros-${ros_distro}-robot-state-publisher"
     "ros-${ros_distro}-rosidl-default-generators"
     "ros-${ros_distro}-rosidl-default-runtime"
@@ -484,6 +517,7 @@ install_ros_packages() {
     "ros-${ros_distro}-tf2"
     "ros-${ros_distro}-tf2-geometry-msgs"
     "ros-${ros_distro}-tf2-ros"
+    "ros-${ros_distro}-visualization-msgs"
     "ros-${ros_distro}-xacro"
   )
   if [[ "${install_ros_desktop}" == "ON" ]]; then
@@ -870,6 +904,109 @@ ensure_onnxruntime() {
 clean_third_party_build_artifacts() {
   log "Cleaning third-party source-tree build artifacts"
   rm -rf "${package_dir}/third_party/open_vins/build"
+  rm -rf "${package_dir}/third_party/Livox-SDK2/build"
+  rm -rf "${package_dir}/third_party/livox_ros_driver2/build"
+  rm -rf "${package_dir}/third_party/point_lio_ros2/build"
+}
+
+livox_sdk2_installed() {
+  ldconfig -p 2>/dev/null | grep -q "liblivox_lidar_sdk" ||
+    [[ -f /usr/local/lib/liblivox_lidar_sdk_static.a || -f /usr/local/lib/liblivox_lidar_sdk_shared.so ]]
+}
+
+ensure_livox_sdk2() {
+  if [[ "${build_livox}" != "ON" ]]; then
+    return
+  fi
+  if [[ "${clean}" != "ON" ]] && livox_sdk2_installed; then
+    log "Livox SDK2 is already installed; skipping SDK build"
+    return
+  fi
+  if [[ "${SKIP_LIVOX_CLONE:-0}" == "1" ]]; then
+    die "Livox SDK2 is not installed and SKIP_LIVOX_CLONE=1."
+  fi
+
+  local sdk_dir="${package_dir}/third_party/Livox-SDK2"
+  local repo="${LIVOX_SDK2_REPO:-https://github.com/Livox-SDK/Livox-SDK2.git}"
+  local ref="${LIVOX_SDK2_REF:-master}"
+  if [[ ! -d "${sdk_dir}/.git" ]]; then
+    log "Cloning Livox SDK2 ${ref} into ${sdk_dir}"
+    git clone --recursive --branch "${ref}" "${repo}" "${sdk_dir}"
+  fi
+
+  cd "${sdk_dir}"
+  git fetch --tags --prune
+  git checkout "${ref}"
+  mkdir -p build
+  cd build
+  cmake .. -DCMAKE_BUILD_TYPE=Release
+  cmake --build . -j "${cmake_build_jobs:-$(nproc)}"
+  sudo cmake --install .
+  sudo ldconfig
+}
+
+ensure_livox_ros_driver2() {
+  if [[ "${build_livox}" != "ON" ]]; then
+    return
+  fi
+  local driver_dir="${package_dir}/third_party/livox_ros_driver2"
+  local workspace_driver="${workspace_dir}/src/livox_ros_driver2"
+  if [[ ! -f "${driver_dir}/package.xml" ]]; then
+    if [[ "${SKIP_LIVOX_CLONE:-0}" == "1" ]]; then
+      die "livox_ros_driver2 not found at ${driver_dir}. Add it there or unset SKIP_LIVOX_CLONE."
+    fi
+    local repo="${LIVOX_ROS_DRIVER2_REPO:-https://github.com/Livox-SDK/livox_ros_driver2.git}"
+    local ref="${LIVOX_ROS_DRIVER2_REF:-master}"
+    log "Cloning livox_ros_driver2 ${ref} into ${driver_dir}"
+    git clone --recursive --branch "${ref}" "${repo}" "${driver_dir}"
+  fi
+
+  mkdir -p "${workspace_dir}/src"
+  if [[ -L "${workspace_driver}" ]]; then
+    local linked_target
+    linked_target="$(readlink "${workspace_driver}")"
+    if [[ "${linked_target}" != "${driver_dir}" ]]; then
+      rm -f "${workspace_driver}"
+      ln -s "${driver_dir}" "${workspace_driver}"
+    fi
+    return
+  fi
+  if [[ -e "${workspace_driver}" ]]; then
+    die "${workspace_driver} exists but is not the managed livox_ros_driver2 symlink."
+  fi
+  ln -s "${driver_dir}" "${workspace_driver}"
+}
+
+ensure_point_lio_ros2() {
+  if [[ "${build_point_lio}" != "ON" ]]; then
+    return
+  fi
+  local point_lio_dir="${package_dir}/third_party/point_lio_ros2"
+  local workspace_point_lio="${workspace_dir}/src/point_lio_ros2"
+  if [[ ! -f "${point_lio_dir}/package.xml" ]]; then
+    if [[ "${SKIP_POINT_LIO_CLONE:-0}" == "1" ]]; then
+      die "point_lio_ros2 not found at ${point_lio_dir}. Add it there or unset SKIP_POINT_LIO_CLONE."
+    fi
+    local repo="${POINT_LIO_ROS2_REPO:-https://github.com/dfloreaa/point_lio_ros2.git}"
+    local ref="${POINT_LIO_ROS2_REF:-main}"
+    log "Cloning Point-LIO ROS2 ${ref} into ${point_lio_dir}"
+    git clone --recursive --branch "${ref}" "${repo}" "${point_lio_dir}"
+  fi
+
+  mkdir -p "${workspace_dir}/src"
+  if [[ -L "${workspace_point_lio}" ]]; then
+    local linked_target
+    linked_target="$(readlink "${workspace_point_lio}")"
+    if [[ "${linked_target}" != "${point_lio_dir}" ]]; then
+      rm -f "${workspace_point_lio}"
+      ln -s "${point_lio_dir}" "${workspace_point_lio}"
+    fi
+    return
+  fi
+  if [[ -e "${workspace_point_lio}" ]]; then
+    die "${workspace_point_lio} exists but is not the managed point_lio_ros2 symlink."
+  fi
+  ln -s "${point_lio_dir}" "${workspace_point_lio}"
 }
 
 ensure_openvins() {
@@ -942,6 +1079,8 @@ build_autonomy_package() {
   ensure_core_interface_package
   ensure_onnxruntime "${ort_dir}" "${ort_asset_arch}"
   ensure_openvins
+  ensure_livox_ros_driver2
+  ensure_point_lio_ros2
   sanitize_conda_build_env
   source_ros
 
@@ -999,6 +1138,12 @@ build_autonomy_package() {
     --symlink-install
     --packages-up-to ov_msckf autonomy
   )
+  if [[ "${build_livox}" == "ON" && -f "${workspace_dir}/src/livox_ros_driver2/package.xml" ]]; then
+    colcon_args+=(livox_ros_driver2)
+  fi
+  if [[ "${build_point_lio}" == "ON" && -f "${workspace_dir}/src/point_lio_ros2/package.xml" ]]; then
+    colcon_args+=(point_lio)
+  fi
   if [[ -n "${colcon_workers}" ]]; then
     colcon_args+=(--parallel-workers "${colcon_workers}")
   fi
@@ -1015,6 +1160,9 @@ run_jetson_setup_steps() {
   install_ros_packages
   build_librealsense_from_source
   build_realsense_ros_driver
+  ensure_livox_sdk2
+  ensure_livox_ros_driver2
+  ensure_point_lio_ros2
 
   log "USB topology"
   lsusb || true
@@ -1042,10 +1190,14 @@ Recommended checks:
   source ${workspace_dir}/install/setup.bash
   rs-enumerate-devices
   ros2 launch realsense2_camera rs_launch.py
+  ros2 launch livox_ros_driver2 rviz_MID360_launch.py
+  ros2 launch point_lio mapping_avia.launch.py
 
 Note:
   realsense-viewer needs a local desktop OpenGL context. On SSH/headless Jetson
   sessions, use rs-enumerate-devices and ROS topics to verify the camera.
+  Livox MID-360 requires network/IP configuration in livox_ros_driver2 config
+  before real hardware data appears.
 
 Build autonomy again:
   ${workspace_dir}/src/autonomy/scripts/build.sh jetson --skip-ros --skip-librealsense --skip-realsense-ros
