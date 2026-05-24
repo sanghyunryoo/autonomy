@@ -22,7 +22,7 @@ operation_modes:
 camera_bindings:
   simulation:
     - role: adas
-      enabled: false
+      enabled: true
       model: d435
       camera_name: adas_camera
       rgb_topic: /robot_4w4l/adas_camera/rgb/image_raw
@@ -108,6 +108,7 @@ robot_state_publisher:
   ros__parameters:
     enabled: true
     urdf_path: src/autonomy/resources/urdf/f16.urdf
+    frame_prefix: 4w4l/
 
 pointcloud_merge_node:
   ros__parameters:
@@ -150,7 +151,7 @@ elevation_mapping_node:
       max_z: 0.50
 
     local_terrain_map:
-      enabled: false
+      enabled: true
       output_image_topic: ~/local_terrain_image
       output_cloud_topic: ~/local_terrain_points
       output_scan_topic: ~/local_terrain_map

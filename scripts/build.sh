@@ -419,9 +419,20 @@ check_jetson_platform() {
 
 setup_ros_apt_repo() {
   log "Configuring ROS 2 apt repository"
+  local existing_ros_source="OFF"
+  if grep -Rqs "packages.ros.org/ros2/ubuntu" /etc/apt/sources.list.d/*.sources; then
+    sudo rm -f /etc/apt/sources.list.d/ros2.list
+    existing_ros_source="ON"
+  fi
+
   apt_install software-properties-common curl gnupg lsb-release ca-certificates
   sudo add-apt-repository universe -y
   sudo mkdir -p /etc/apt/keyrings
+
+  if [[ "${existing_ros_source}" == "ON" ]]; then
+    log "Existing ROS 2 apt source detected; skipping duplicate ros2.list"
+    return
+  fi
 
   if [[ ! -f /etc/apt/keyrings/ros-archive-keyring.gpg ]]; then
     curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key |
@@ -1082,6 +1093,9 @@ build_autonomy_package() {
   ensure_livox_ros_driver2
   ensure_point_lio_ros2
   sanitize_conda_build_env
+  if [[ "${run_jetson_setup}" != "ON" ]]; then
+    install_ros_packages
+  fi
   source_ros
 
   if [[ "${clean}" == "ON" ]]; then

@@ -1110,10 +1110,10 @@
     name="livox_joint"
     type="fixed">
     <origin
-      xyz="-0.08 0 0"
+      xyz="0.24 0 0.20"
       rpy="0 0 0" />
     <parent
-      link="A_camera_link" />
+      link="base_link" />
     <child
       link="livox_frame" />
   </joint>
