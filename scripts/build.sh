@@ -960,6 +960,7 @@ ensure_livox_ros_driver2() {
   fi
   local driver_dir="${package_dir}/third_party/livox_ros_driver2"
   local workspace_driver="${workspace_dir}/src/livox_ros_driver2"
+  prepare_livox_ros_driver2_ros2_package "${driver_dir}" || true
   local package_xml=""
   package_xml="$(find_ros_package_xml "${driver_dir}" "livox_ros_driver2")"
   if [[ -z "${package_xml}" ]]; then
@@ -980,6 +981,7 @@ ensure_livox_ros_driver2() {
     else
       die "${driver_dir} exists but no livox_ros_driver2 package.xml was found under it."
     fi
+    prepare_livox_ros_driver2_ros2_package "${driver_dir}" || true
     package_xml="$(find_ros_package_xml "${driver_dir}" "livox_ros_driver2")"
     [[ -n "${package_xml}" ]] ||
       die "livox_ros_driver2 clone completed, but package.xml was not found under ${driver_dir}."
@@ -999,6 +1001,26 @@ ensure_livox_ros_driver2() {
     die "${workspace_driver} exists but is not the managed livox_ros_driver2 symlink."
   fi
   ln -s "${driver_dir}" "${workspace_driver}"
+}
+
+prepare_livox_ros_driver2_ros2_package() {
+  local driver_dir="$1"
+  [[ -d "${driver_dir}" ]] || return 1
+
+  local package_ros2="${driver_dir}/package_ROS2.xml"
+  local cmake_ros2="${driver_dir}/CMakeLists_ROS2.txt"
+  local package_xml="${driver_dir}/package.xml"
+  local cmake_txt="${driver_dir}/CMakeLists.txt"
+
+  if [[ -f "${package_ros2}" && ! -f "${package_xml}" ]]; then
+    log "Preparing livox_ros_driver2 ROS2 package.xml from package_ROS2.xml"
+    cp "${package_ros2}" "${package_xml}"
+  fi
+
+  if [[ -f "${cmake_ros2}" && ! -f "${cmake_txt}" ]]; then
+    log "Preparing livox_ros_driver2 ROS2 CMakeLists.txt from CMakeLists_ROS2.txt"
+    cp "${cmake_ros2}" "${cmake_txt}"
+  fi
 }
 
 find_ros_package_xml() {
