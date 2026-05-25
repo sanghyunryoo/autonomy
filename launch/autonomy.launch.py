@@ -61,6 +61,45 @@ def _robot_state_publisher_node(data, use_sim_time):
     )
 
 
+def _static_tf_node(parent_frame, child_frame, use_sim_time):
+    return _worker_node(
+        "static_transform_publisher",
+        [use_sim_time],
+        name=f"static_tf_alias_{child_frame.replace('/', '_')}",
+        package="tf2_ros",
+        arguments=[
+            "0", "0", "0",
+            "0", "0", "0",
+            str(parent_frame),
+            str(child_frame),
+        ],
+    )
+
+
+def _frame_alias_static_tf_nodes(data, space, use_sim_time):
+    prefix = _frame_prefix(data)
+    if not prefix:
+        return []
+
+    aliases = []
+    seen = set()
+    try:
+        bindings = [_find_camera_binding(data, space, _rtabmap_camera_role(data, space))]
+    except RuntimeError:
+        bindings = []
+    for binding in bindings:
+        for key in ("optical_frame", "rgb_optical_frame", "color_optical_frame"):
+            child = str(binding.get(key, "")).strip().lstrip("/")
+            if not child or "/" in child:
+                continue
+            parent = prefix + child
+            if parent == child or (parent, child) in seen:
+                continue
+            seen.add((parent, child))
+            aliases.append(_static_tf_node(parent, child, use_sim_time))
+    return aliases
+
+
 def _parse_bool(value, default=True):
     if value is None:
         return default
@@ -290,8 +329,40 @@ def _adas_binding(data, space):
     return _find_camera_binding(data, space, "adas")
 
 
+def _front_binding(data, space):
+    return _find_camera_binding(data, space, "front")
+
+
 def _adas_enabled(data, space):
     return _enabled_camera_binding(data, space, "adas") is not None
+
+
+def _front_enabled(data, space):
+    return _enabled_camera_binding(data, space, "front") is not None
+
+
+def _rtabmap_enabled(data, space):
+    role = _rtabmap_camera_role(data, space)
+    return _enabled_camera_binding(data, space, role) is not None and _parse_bool(
+        _node_params(data, "rtabmap_localization_node").get("enabled", True),
+        default=True,
+    )
+
+
+def _node_enabled(data, node_name, default=True):
+    return _parse_bool(_node_params(data, node_name).get("enabled", default), default=default)
+
+
+def _imu_stabilized_params(data, space):
+    params = _node_params(data, "imu_stabilized_tf_node").copy()
+    try:
+        binding = _front_binding(data, space)
+    except RuntimeError:
+        binding = {}
+    imu_topic = str(binding.get("imu_topic", params.get("imu_topic", "")))
+    if imu_topic:
+        params["imu_topic"] = imu_topic
+    return params
 
 
 def _ai_topic_params(data, space):
@@ -312,136 +383,90 @@ def _ai_topic_params(data, space):
     }
 
 
-def _format_opencv_scalar(value):
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
-    return str(value)
-
-
-def _format_opencv_value(value, indent=0):
-    pad = " " * indent
-    if isinstance(value, dict):
-        lines = []
-        for key, item in value.items():
-            if isinstance(item, (dict, list)):
-                lines.append(f"{pad}{key}:")
-                lines.extend(_format_opencv_value(item, indent + 2))
-            else:
-                lines.append(f"{pad}{key}: {_format_opencv_scalar(item)}")
-        return lines
-    if isinstance(value, list):
-        if value and all(isinstance(item, list) for item in value):
-            return [
-                f"{pad}- [{', '.join(_format_opencv_scalar(elem) for elem in row)}]"
-                for row in value
-            ]
-        return [f"{pad}[{', '.join(_format_opencv_scalar(item) for item in value)}]"]
-    return [f"{pad}{_format_opencv_scalar(value)}"]
-
-
-def _write_openvins_yaml(path, data):
-    lines = ["%YAML:1.0", ""]
-    lines.extend(_format_opencv_value(data))
-    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return str(path)
-
-
-def _openvins_profile(config_file, data, space):
-    params = _node_params(data, "openvins_vio_node")
-    settings_config = _resolve_package_path(
-        str(params.get("settings_config") or Path(config_file).with_name("openvins.yaml"))
-    )
-    profiles = _load_yaml(settings_config).get("profiles", {})
-    if not isinstance(profiles, dict):
-        raise RuntimeError(f"{settings_config} must define a 'profiles' dictionary")
-
-    profile_key = "settings_profile_simulation" if space == "simulation" else "settings_profile_real"
-    profile_name = str(params.get(profile_key) or space)
-    profile = profiles.get(profile_name)
-    if not isinstance(profile, dict):
-        valid = ", ".join(sorted(str(key) for key in profiles.keys()))
-        raise RuntimeError(f"OpenVINS profile '{profile_name}' not found in {settings_config}. Valid profiles: {valid}")
-    return settings_config, profile_name, profile
-
-
-def _openvins_params(config_file, data, space):
-    settings_config, profile_name, profile = _openvins_profile(config_file, data, space)
-    binding = _adas_binding(data, space)
+def _rtabmap_params(data, space):
+    params = _node_params(data, "rtabmap_localization_node").copy()
+    binding = _find_camera_binding(data, space, _rtabmap_camera_role(data, space))
     base = _camera_base_topic(binding, space)
-    imu_topic = str(binding.get("imu_topic", ""))
-    if not imu_topic:
-        raise RuntimeError(f"camera_bindings.{space}.adas must define imu_topic for openvins_vio_node")
-
-    output_dir = Path("/tmp") / f"autonomy_openvins_{profile_name}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    estimator_path = output_dir / "estimator_config.yaml"
-    imu_path = output_dir / "kalibr_imu_chain.yaml"
-    imucam_path = output_dir / "kalibr_imucam_chain.yaml"
-
-    estimator = dict(profile.get("estimator", {}))
-    estimator.update({
-        "verbosity": profile.get("verbosity", "INFO"),
-        "use_stereo": profile.get("use_stereo", True),
-        "max_cameras": profile.get("max_cameras", 2),
-        "relative_config_imu": imu_path.name,
-        "relative_config_imucam": imucam_path.name,
-    })
-
-    imu = dict(profile.get("imu", {}))
-    imu.setdefault("T_i_b", [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ])
-    imu["rostopic"] = imu_topic
-    imu.setdefault("time_offset", 0.0)
-    imu.setdefault("model", "kalibr")
-    imu.setdefault("Tw", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-    imu.setdefault("R_IMUtoGYRO", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-    imu.setdefault("Ta", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-    imu.setdefault("R_IMUtoACC", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-    imu.setdefault("Tg", [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
-
-    cameras = {}
-    for camera_name, camera_config in (profile.get("cameras", {}) or {}).items():
-        camera = dict(camera_config)
-        binding_key = str(camera.pop("binding_key", "left_image_topic"))
-        camera["rostopic"] = _topic_from_binding(
+    params["rgb_topic"] = _rtabmap_topic_param(
+        params,
+        space,
+        "rgb_topic",
+        _topic_from_binding(
             binding,
-            (binding_key,),
-            f"{base}/left/image_raw" if camera_name == "cam0" else f"{base}/right/image_raw",
-        )
-        cameras[camera_name] = camera
+            ("rgb_topic", "color_topic", "image_topic"),
+            f"{base}/rgb/image_raw" if space == "simulation" else f"{base}/color/image_raw",
+        ),
+    )
+    params["depth_topic"] = _rtabmap_topic_param(
+        params,
+        space,
+        "depth_topic",
+        _topic_from_binding(binding, ("depth_topic",), f"{base}/depth/image_rect_raw"),
+    )
+    params["camera_info_topic"] = _rtabmap_topic_param(
+        params,
+        space,
+        "camera_info_topic",
+        _topic_from_binding(
+            binding,
+            ("rgb_camera_info_topic", "color_camera_info_topic", "camera_info_topic"),
+            f"{base}/rgb/camera_info" if space == "simulation" else f"{base}/color/camera_info",
+        ),
+    )
+    return params
 
-    _write_openvins_yaml(estimator_path, estimator)
-    _write_openvins_yaml(imu_path, {"imu0": imu})
-    _write_openvins_yaml(imucam_path, cameras)
 
-    params = _node_params(data, "openvins_vio_node")
-    return {
-        "verbosity": str(params.get("verbosity", profile.get("verbosity", "INFO"))),
-        "config_path": str(estimator_path),
-        "use_stereo": bool(params.get("use_stereo", profile.get("use_stereo", True))),
-        "max_cameras": int(params.get("max_cameras", profile.get("max_cameras", 2))),
+def _rtabmap_camera_role(data, space):
+    params = _node_params(data, "rtabmap_localization_node")
+    role = params.get(f"{space}_camera_role", params.get("camera_role", "adas"))
+    return str(role).strip().lower()
+
+
+def _rtabmap_topic_param(params, space, key, default):
+    return str(params.get(f"{space}_{key}", params.get(key, default)))
+
+
+def _rtabmap_node_params(params):
+    excluded = {
+        "enabled",
+        "camera_role",
+        "simulation_camera_role",
+        "real_camera_role",
+        "rgb_topic",
+        "depth_topic",
+        "camera_info_topic",
+        "simulation_rgb_topic",
+        "simulation_depth_topic",
+        "simulation_camera_info_topic",
+        "real_rgb_topic",
+        "real_depth_topic",
+        "real_camera_info_topic",
+        "odom_topic",
     }
+    return {key: value for key, value in params.items() if key not in excluded}
 
 
-def _managed_nodes(simulation, enable_vio):
-    base = ["pointcloud_merge_node", "elevation_mapping_node"]
+def _rtabmap_remappings(params):
+    return [
+        ("rgb/image", str(params["rgb_topic"])),
+        ("depth/image", str(params["depth_topic"])),
+        ("rgb/camera_info", str(params["camera_info_topic"])),
+        ("odom", str(params.get("odom_topic", "/rtabmap/odom"))),
+    ]
+
+
+def _managed_nodes(simulation, enable_rtabmap, enable_tracking):
+    base = ["imu_stabilized_tf_node", "pointcloud_merge_node", "elevation_mapping_node"]
     if not simulation:
         base = ["realsense_usb_mapper"] + base
-    adas_stack = base + (["openvins_vio_node", "rl_local_planner_node"] if enable_vio else [])
+    adas_stack = base + (["rtabmap_localization_node", "rl_local_planner_node"] if enable_rtabmap else [])
     fsd_stack = adas_stack + ["point_lio_monitor_node", "global_planner_node"]
     if not simulation:
         fsd_stack = ["livox_monitor_node"] + fsd_stack
     mapping_stack = ["point_lio_monitor_node", "point_lio_map_saver_node"]
     if not simulation:
         mapping_stack = ["livox_monitor_node"] + mapping_stack
-    tracking_stack = base + (["ai_detection_node", "tracking_follower_node"] if enable_vio else [])
+    tracking_stack = base + (["ai_detection_node", "tracking_follower_node"] if enable_tracking else [])
 
     return {
         "managed_nodes.drive": base,
@@ -452,13 +477,14 @@ def _managed_nodes(simulation, enable_vio):
     }
 
 
-def _worker_node(executable, parameters, name=None, output="log", package=PACKAGE_NAME):
+def _worker_node(executable, parameters, name=None, output="log", package=PACKAGE_NAME, remappings=None, arguments=None):
     return Node(
         package=package,
         executable=executable,
         name=name or executable,
         output=output,
-        arguments=QUIET_WORKER_ROS_ARGS if output != "screen" else [],
+        arguments=arguments if arguments is not None else (QUIET_WORKER_ROS_ARGS if output != "screen" else []),
+        remappings=remappings or [],
         sigterm_timeout=NODE_SIGTERM_TIMEOUT,
         sigkill_timeout=NODE_SIGKILL_TIMEOUT,
         parameters=parameters,
@@ -473,7 +499,12 @@ def _make_stack(context, *args, **kwargs):
     data = _load_yaml(config_file)
     space = _binding_space(simulation_text)
     use_sim_time = {"use_sim_time": LaunchConfiguration("simulation")}
-    enable_adas_stack = _adas_enabled(data, space)
+    enable_local_stack = _adas_enabled(data, space)
+    enable_rtabmap = _rtabmap_enabled(data, space)
+    enable_rl_local_planner = enable_local_stack and _node_enabled(data, "rl_local_planner_node")
+    enable_ai_detection = _adas_enabled(data, space) and _node_enabled(data, "ai_detection_node")
+    enable_global_planner = enable_local_stack and _node_enabled(data, "global_planner_node")
+    enable_tracking_follower = enable_ai_detection and _node_enabled(data, "tracking_follower_node")
 
     actions = [
         LogInfo(msg="Autonomy stack starting in IDLE. Use /autonomy_manager/set_mode to change modes."),
@@ -482,6 +513,7 @@ def _make_stack(context, *args, **kwargs):
     robot_state_publisher = _robot_state_publisher_node(data, use_sim_time)
     if robot_state_publisher is not None:
         actions.append(robot_state_publisher)
+    actions.extend(_frame_alias_static_tf_nodes(data, space, use_sim_time))
 
     if not simulation:
         actions.append(_worker_node(
@@ -496,6 +528,10 @@ def _make_stack(context, *args, **kwargs):
         ))
 
     actions.extend([
+        _worker_node(
+            "imu_stabilized_tf_node",
+            [_imu_stabilized_params(data, space), use_sim_time],
+        ),
         _worker_node(
             "pointcloud_merge_node",
             [_merge_params(data, space), use_sim_time],
@@ -534,41 +570,66 @@ def _make_stack(context, *args, **kwargs):
         _point_lio_launch_arguments(data, simulation),
     ))
 
-    if enable_adas_stack:
+    if enable_rtabmap:
+        rtabmap_params = _rtabmap_params(data, space)
+        rtabmap_common_params = _rtabmap_node_params(rtabmap_params)
+        rtabmap_remappings = _rtabmap_remappings(rtabmap_params)
         actions.extend([
             _worker_node(
-                "run_subscribe_msckf",
-                [_openvins_params(config_file, data, space), use_sim_time],
-                name="openvins_vio_node",
-                package="ov_msckf",
+                "rgbd_odometry",
+                [rtabmap_common_params, use_sim_time],
+                name="rtabmap_rgbd_odometry",
+                package="rtabmap_odom",
+                remappings=rtabmap_remappings,
             ),
             _worker_node(
-                "vio_pose_adapter_node",
-                [_node_params(data, "vio_pose_adapter_node"), use_sim_time],
+                "localization_pose_adapter_node",
+                [_node_params(data, "localization_pose_adapter_node"), use_sim_time],
             ),
+        ])
+    elif enable_local_stack:
+        actions.append(LogInfo(msg="RTAB-Map localization is disabled; /localization/current_pose must come from another node."))
+
+    if enable_ai_detection:
+        actions.append(
             _worker_node(
                 "ai_detection_node",
                 [_resolve_node_paths(_node_params(data, "ai_detection_node"), ("model_path",)),
                  _ai_topic_params(data, space),
                  use_sim_time],
-            ),
+            )
+        )
+
+    if enable_rl_local_planner:
+        actions.append(
             _worker_node(
                 "rl_local_planner_node",
                 [_node_params(data, "rl_local_planner_node"), use_sim_time, {"enabled": True}],
-            ),
+            )
+        )
+
+    if enable_global_planner:
+        actions.append(
             _worker_node(
                 "global_planner_node",
                 [_resolve_node_paths(_node_params(data, "global_planner_node"), ("map_file",)),
                  use_sim_time,
                  {"enabled": True}],
-            ),
+            )
+        )
+
+    if enable_tracking_follower:
+        actions.append(
             _worker_node(
                 "tracking_follower_node",
                 [_node_params(data, "tracking_follower_node"), use_sim_time, {"enabled": True}],
-            ),
-        ])
-    else:
-        actions.append(LogInfo(msg="ADAS camera is disabled; ADAS/FSD/TRACKING worker nodes will not start."))
+            )
+        )
+
+    if not enable_local_stack:
+        actions.append(LogInfo(msg="ADAS camera is disabled; local autonomy worker nodes will not start."))
+    if not _adas_enabled(data, space):
+        actions.append(LogInfo(msg="ADAS camera is disabled; AI detection/tracking worker nodes will not start."))
 
     actions.append(
         _worker_node(
@@ -581,7 +642,7 @@ def _make_stack(context, *args, **kwargs):
                     "enable_ai": False,
                     "segmentation": False,
                     "map_dir": map_dir,
-                    **_managed_nodes(simulation, enable_adas_stack),
+                    **_managed_nodes(simulation, enable_rtabmap, enable_tracking_follower),
                 },
             ],
             name="autonomy_manager",

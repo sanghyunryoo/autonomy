@@ -86,7 +86,7 @@ ros2 launch autonomy autonomy.launch.py simulation:=false
 ```
 
 Keep USB port bindings, camera topic bindings, merge settings, elevation tuning,
-SLAM, AI, planner, and manager parameters in `resources/config/autonomy.yaml`. For
+RGB-D odometry, AI, planner, and manager parameters in `resources/config/autonomy.yaml`. For
 hardware, first identify the board port ids:
 
 ```bash
@@ -299,11 +299,8 @@ Key fields:
 
 ## Localization
 
-The autonomy launch uses OpenVINS `ov_msckf` for stereo-inertial VIO instead of
-building ORB-SLAM3 in this package. `scripts/build.sh` prepares `src/open_vins` when it
-is missing and builds `ov_msckf` together with `autonomy`.
-
-OpenVINS publishes odometry on `/odomimu`. The local
-`vio_pose_adapter_node` republishes `/localization/current_pose` as
-`geometry_msgs/Pose2D` for the RL local planner and reports the
-`openvins_vio_node` heartbeat to the autonomy manager.
+The autonomy launch uses RTAB-Map RGB-D odometry with the ADAS D435i RGB-D
+stream. RTAB-Map publishes odometry on `/rtabmap/odom`; the local
+`localization_pose_adapter_node` owns the continuous `odom -> base_footprint`
+TF and republishes `/localization/current_pose` as `geometry_msgs/Pose2D` for
+the RL local planner.

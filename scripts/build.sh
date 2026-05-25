@@ -68,9 +68,6 @@ Environment:
   LIBREALSENSE_JOBS          Same as --librealsense-jobs when set.
   RUN_ROSDEP                 Set to 1 to run rosdep before build-only flows.
   ONNXRUNTIME_VERSION        ONNX Runtime binary release. Default: 1.18.1.
-  OPENVINS_REPO              OpenVINS git repository. Default: https://github.com/rpng/open_vins.git.
-  OPENVINS_VERSION           OpenVINS git branch/tag/commit. Default: master.
-  SKIP_OPENVINS_CLONE        Set to 1 when OpenVINS is already in third_party/open_vins.
   LIVOX_SDK2_REPO            Livox SDK2 repository. Default: https://github.com/Livox-SDK/Livox-SDK2.git.
   LIVOX_ROS_DRIVER2_REPO     Livox ROS driver 2 repository. Default: https://github.com/Livox-SDK/livox_ros_driver2.git.
   POINT_LIO_ROS2_REPO        Point-LIO ROS 2 repository. Default: https://github.com/dfloreaa/point_lio_ros2.git.
@@ -523,8 +520,10 @@ install_ros_packages() {
     "ros-${ros_distro}-robot-state-publisher"
     "ros-${ros_distro}-rosidl-default-generators"
     "ros-${ros_distro}-rosidl-default-runtime"
+    "ros-${ros_distro}-rtabmap-odom"
     "ros-${ros_distro}-sensor-msgs"
     "ros-${ros_distro}-std-msgs"
+    "ros-${ros_distro}-std-srvs"
     "ros-${ros_distro}-tf2"
     "ros-${ros_distro}-tf2-geometry-msgs"
     "ros-${ros_distro}-tf2-ros"
@@ -914,7 +913,6 @@ ensure_onnxruntime() {
 
 clean_third_party_build_artifacts() {
   log "Cleaning third-party source-tree build artifacts"
-  rm -rf "${package_dir}/third_party/open_vins/build"
   rm -rf "${package_dir}/third_party/Livox-SDK2/build"
   rm -rf "${package_dir}/third_party/livox_ros_driver2/build"
   rm -rf "${package_dir}/third_party/point_lio_ros2/build"
@@ -1020,44 +1018,6 @@ ensure_point_lio_ros2() {
   ln -s "${point_lio_dir}" "${workspace_point_lio}"
 }
 
-ensure_openvins() {
-  local third_party_openvins="${package_dir}/third_party/open_vins"
-  local workspace_openvins="${workspace_dir}/src/open_vins"
-
-  if [[ ! -f "${third_party_openvins}/ov_msckf/package.xml" && -f "${workspace_openvins}/ov_msckf/package.xml" && ! -L "${workspace_openvins}" ]]; then
-    log "Moving existing workspace OpenVINS into ${third_party_openvins}"
-    mkdir -p "$(dirname "${third_party_openvins}")"
-    mv "${workspace_openvins}" "${third_party_openvins}"
-  fi
-
-  if [[ ! -f "${third_party_openvins}/ov_msckf/package.xml" ]]; then
-    if [[ "${SKIP_OPENVINS_CLONE:-0}" == "1" ]]; then
-      die "OpenVINS not found at ${third_party_openvins}. Add it there or unset SKIP_OPENVINS_CLONE."
-    fi
-
-    local repo="${OPENVINS_REPO:-https://github.com/rpng/open_vins.git}"
-    local version="${OPENVINS_VERSION:-master}"
-    log "Cloning OpenVINS ${version} into ${third_party_openvins}"
-    git clone --recursive --branch "${version}" "${repo}" "${third_party_openvins}"
-  fi
-
-  if [[ -L "${workspace_openvins}" ]]; then
-    local linked_target
-    linked_target="$(readlink "${workspace_openvins}")"
-    if [[ "${linked_target}" != "${third_party_openvins}" ]]; then
-      rm -f "${workspace_openvins}"
-      ln -s "${third_party_openvins}" "${workspace_openvins}"
-    fi
-    return
-  fi
-
-  if [[ -e "${workspace_openvins}" ]]; then
-    die "${workspace_openvins} exists but is not the managed OpenVINS symlink."
-  fi
-
-  ln -s "${third_party_openvins}" "${workspace_openvins}"
-}
-
 build_autonomy_package() {
   if [[ "${build_autonomy}" != "ON" ]]; then
     return
@@ -1089,7 +1049,6 @@ build_autonomy_package() {
   ensure_workspace_link
   ensure_core_interface_package
   ensure_onnxruntime "${ort_dir}" "${ort_asset_arch}"
-  ensure_openvins
   ensure_livox_ros_driver2
   ensure_point_lio_ros2
   sanitize_conda_build_env
@@ -1100,15 +1059,9 @@ build_autonomy_package() {
 
   if [[ "${clean}" == "ON" ]]; then
     if [[ "${run_jetson_setup}" == "ON" ]]; then
-      log "Cleaning autonomy/OpenVINS build artifacts without removing RealSense install"
+      log "Cleaning autonomy build artifacts without removing RealSense install"
       rm -rf "${workspace_dir}/build/autonomy" \
-        "${workspace_dir}/build/ov_core" \
-        "${workspace_dir}/build/ov_init" \
-        "${workspace_dir}/build/ov_msckf" \
-        "${workspace_dir}/install/autonomy" \
-        "${workspace_dir}/install/ov_core" \
-        "${workspace_dir}/install/ov_init" \
-        "${workspace_dir}/install/ov_msckf"
+        "${workspace_dir}/install/autonomy"
     else
       log "Cleaning workspace build/install/log"
       rm -rf "${workspace_dir}/build" "${workspace_dir}/install" "${workspace_dir}/log"
@@ -1150,7 +1103,7 @@ build_autonomy_package() {
   fi
   local colcon_args=(
     --symlink-install
-    --packages-up-to ov_msckf autonomy
+    --packages-up-to autonomy
   )
   if [[ "${build_livox}" == "ON" && -f "${workspace_dir}/src/livox_ros_driver2/package.xml" ]]; then
     colcon_args+=(livox_ros_driver2)

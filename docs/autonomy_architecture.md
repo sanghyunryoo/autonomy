@@ -9,8 +9,8 @@ around it.
   local terrain map.
 - Perception: ADAS front-camera detector publishes annotated images and
   `DetectedObjectArray` with optional 3D positions.
-- Localization: OpenVINS `ov_msckf` runs stereo-inertial VIO and the local
-  adapter republishes the current 2D pose for the planner.
+- Localization: RTAB-Map runs RGB-D odometry only; the local adapter keeps
+  `odom -> base_footprint` alive and republishes the current 2D pose for the planner.
 - Planning: global planner publishes a global path; ONNX RL local planner consumes
   current pose, target pose, and local height scan, then publishes velocity.
 - Supervision: autonomy manager owns mode state, ESTOP, node heartbeat status, and
@@ -24,8 +24,8 @@ for ROS launch and offline generation/utilities only.
 - IDLE: no autonomy-critical nodes required.
 - DRIVE: elevation stack only.
 - ADAS: elevation stack plus front-camera AI detection.
-- FSD: elevation stack, AI detection, VIO, global planner, RL local planner.
-- MAPPING: elevation stack plus VIO/localization.
+- FSD: elevation stack, AI detection, RGB-D localization, global planner, RL local planner.
+- MAPPING: elevation stack plus RGB-D localization.
 - ERROR: internal fault reporting state; it is not requested through
   `/autonomy_manager/set_mode`.
 - IDLE/DRIVE effective mode follows `/robot_report`: robot states 2-6 map to

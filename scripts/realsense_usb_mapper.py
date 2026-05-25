@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish USB-port-bound RealSense depth images on role-specific topics."""
+"""Publish USB-port-bound RealSense RGB-D images on role-specific topics."""
 
 import json
 import re
@@ -95,11 +95,16 @@ class RealSenseUsbMapper(Node):
         self._heartbeat_pub = self.create_publisher(String, "/autonomy/heartbeat/realsense_usb_mapper", 10)
         self._depth_publishers = {}
         self._camera_info_publishers = {}
+        self._color_publishers = {}
+        self._color_camera_info_publishers = {}
         self._pipelines = {}
-        self._intrinsics = {}
+        self._aligners = {}
+        self._depth_intrinsics = {}
+        self._color_intrinsics = {}
         self._depth_scales = {}
         self._active_profiles = {}
         self._logged_depth_publishers = set()
+        self._logged_color_publishers = set()
         self._autonomy_sub = None
         if self._respect_autonomy_mode:
             self._autonomy_sub = self.create_subscription(
@@ -180,13 +185,37 @@ class RealSenseUsbMapper(Node):
         stream.setdefault("depth_width", 640)
         stream.setdefault("depth_height", 480)
         stream.setdefault("depth_fps", 60)
+        stream.setdefault("color_width", stream["depth_width"])
+        stream.setdefault("color_height", stream["depth_height"])
+        stream.setdefault("color_fps", min(30, int(stream["depth_fps"])))
         stream.setdefault("max_range", 2.5)
         stream.setdefault(
             "fallback_profiles",
             [
-                {"depth_width": 848, "depth_height": 480, "depth_fps": 60},
-                {"depth_width": 640, "depth_height": 360, "depth_fps": 60},
-                {"depth_width": 424, "depth_height": 240, "depth_fps": 60},
+                {
+                    "depth_width": 848,
+                    "depth_height": 480,
+                    "depth_fps": 60,
+                    "color_width": 848,
+                    "color_height": 480,
+                    "color_fps": 30,
+                },
+                {
+                    "depth_width": 640,
+                    "depth_height": 360,
+                    "depth_fps": 60,
+                    "color_width": 640,
+                    "color_height": 360,
+                    "color_fps": 30,
+                },
+                {
+                    "depth_width": 424,
+                    "depth_height": 240,
+                    "depth_fps": 60,
+                    "color_width": 424,
+                    "color_height": 240,
+                    "color_fps": 30,
+                },
             ],
         )
 
@@ -324,7 +353,9 @@ class RealSenseUsbMapper(Node):
             binding["resolved_usb_port_id"] = device_info.get("usb_port_id", "")
             binding["physical_port"] = device_info.get("physical_port", "")
             self._pipelines[role] = pipeline
-            self._intrinsics[role] = active_profile["intrinsics"]
+            if "rgb_topic" in binding:
+                self._aligners[role] = self._rs.align(self._rs.stream.color)
+            self._depth_intrinsics[role] = active_profile["depth_intrinsics"]
             self._depth_scales[role] = active_profile["depth_scale"]
             self._active_profiles[role] = active_profile
             self._depth_publishers[role] = self.create_publisher(
@@ -333,6 +364,18 @@ class RealSenseUsbMapper(Node):
             self._camera_info_publishers[role] = self.create_publisher(
                 CameraInfo, binding["camera_info_topic"], qos_profile_sensor_data
             )
+            if "rgb_topic" in binding:
+                self._color_intrinsics[role] = active_profile["color_intrinsics"]
+                self._color_publishers[role] = self.create_publisher(
+                    Image, binding["rgb_topic"], qos_profile_sensor_data
+                )
+                rgb_camera_info_topic = binding.get("rgb_camera_info_topic") or binding.get(
+                    "color_camera_info_topic"
+                )
+                if rgb_camera_info_topic:
+                    self._color_camera_info_publishers[role] = self.create_publisher(
+                        CameraInfo, rgb_camera_info_topic, qos_profile_sensor_data
+                    )
 
     def _stop_cameras(self):
         for pipeline in self._pipelines.values():
@@ -341,12 +384,17 @@ class RealSenseUsbMapper(Node):
             except RuntimeError:
                 pass
         self._pipelines.clear()
-        self._intrinsics.clear()
+        self._aligners.clear()
+        self._depth_intrinsics.clear()
+        self._color_intrinsics.clear()
         self._depth_scales.clear()
         self._active_profiles.clear()
         self._depth_publishers.clear()
         self._camera_info_publishers.clear()
+        self._color_publishers.clear()
+        self._color_camera_info_publishers.clear()
         self._logged_depth_publishers.clear()
+        self._logged_color_publishers.clear()
 
     def _candidate_profiles(self, binding):
         candidates = [
@@ -354,6 +402,9 @@ class RealSenseUsbMapper(Node):
                 "depth_width": int(binding.get("depth_width", self._stream["depth_width"])),
                 "depth_height": int(binding.get("depth_height", self._stream["depth_height"])),
                 "depth_fps": int(binding.get("depth_fps", self._stream["depth_fps"])),
+                "color_width": int(binding.get("color_width", self._stream["color_width"])),
+                "color_height": int(binding.get("color_height", self._stream["color_height"])),
+                "color_fps": int(binding.get("color_fps", self._stream["color_fps"])),
             }
         ]
         for profile in self._stream.get("fallback_profiles", []):
@@ -361,6 +412,9 @@ class RealSenseUsbMapper(Node):
                 "depth_width": int(profile["depth_width"]),
                 "depth_height": int(profile["depth_height"]),
                 "depth_fps": int(profile["depth_fps"]),
+                "color_width": int(profile.get("color_width", profile["depth_width"])),
+                "color_height": int(profile.get("color_height", profile["depth_height"])),
+                "color_fps": int(profile.get("color_fps", min(30, int(profile["depth_fps"])))),
             }
             if candidate not in candidates:
                 candidates.append(candidate)
@@ -379,6 +433,14 @@ class RealSenseUsbMapper(Node):
                 self._rs.format.z16,
                 profile["depth_fps"],
             )
+            if "rgb_topic" in binding:
+                config.enable_stream(
+                    self._rs.stream.color,
+                    profile["color_width"],
+                    profile["color_height"],
+                    self._rs.format.rgb8,
+                    profile["color_fps"],
+                )
             try:
                 pipeline_profile = pipeline.start(config)
                 depth_stream = pipeline_profile.get_stream(
@@ -386,7 +448,12 @@ class RealSenseUsbMapper(Node):
                 ).as_video_stream_profile()
                 depth_sensor = pipeline_profile.get_device().first_depth_sensor()
                 active_profile = dict(profile)
-                active_profile["intrinsics"] = depth_stream.get_intrinsics()
+                active_profile["depth_intrinsics"] = depth_stream.get_intrinsics()
+                if "rgb_topic" in binding:
+                    color_stream = pipeline_profile.get_stream(
+                        self._rs.stream.color
+                    ).as_video_stream_profile()
+                    active_profile["color_intrinsics"] = color_stream.get_intrinsics()
                 active_profile["depth_scale"] = depth_sensor.get_depth_scale()
                 return pipeline, active_profile
             except RuntimeError as exc:
@@ -394,17 +461,18 @@ class RealSenseUsbMapper(Node):
                 self.get_logger().warn(
                     f"Failed to start serial={serial} role={binding['role']} "
                     f"with depth={profile['depth_width']}x{profile['depth_height']}"
-                    f"@{profile['depth_fps']}: {exc}"
+                    f"@{profile['depth_fps']} color={profile['color_width']}x"
+                    f"{profile['color_height']}@{profile['color_fps']}: {exc}"
                 )
 
         self.get_logger().error(
-            f"No usable depth profile for serial={serial} role={binding['role']}. "
+            f"No usable RGB-D profile for serial={serial} role={binding['role']}. "
             f"Last error: {last_error}"
         )
-        self._log_supported_depth_profiles(serial)
+        self._log_supported_profiles(serial)
         return None, None
 
-    def _log_supported_depth_profiles(self, serial):
+    def _log_supported_profiles(self, serial):
         context = self._rs.context()
         for device in context.query_devices():
             device_serial = device.get_info(self._rs.camera_info.serial_number)
@@ -412,24 +480,37 @@ class RealSenseUsbMapper(Node):
                 continue
 
             profiles = []
+            color_profiles = []
             for sensor in device.query_sensors():
                 for profile in sensor.get_stream_profiles():
-                    if profile.stream_type() != self._rs.stream.depth:
+                    stream_type = profile.stream_type()
+                    if stream_type == self._rs.stream.depth and profile.format() != self._rs.format.z16:
                         continue
-                    if profile.format() != self._rs.format.z16:
+                    if stream_type == self._rs.stream.color and profile.format() != self._rs.format.rgb8:
+                        continue
+                    if stream_type not in (self._rs.stream.depth, self._rs.stream.color):
                         continue
                     try:
                         video_profile = profile.as_video_stream_profile()
                     except RuntimeError:
                         continue
-                    profiles.append(
+                    item = (
                         f"{video_profile.width()}x{video_profile.height()}@{profile.fps()}"
                     )
+                    if stream_type == self._rs.stream.depth:
+                        profiles.append(item)
+                    else:
+                        color_profiles.append(item)
 
             unique_profiles = sorted(set(profiles))
             self.get_logger().error(
                 f"Supported z16 depth profiles for serial={serial}: "
                 + (", ".join(unique_profiles) if unique_profiles else "none")
+            )
+            unique_color_profiles = sorted(set(color_profiles))
+            self.get_logger().error(
+                f"Supported rgb8 color profiles for serial={serial}: "
+                + (", ".join(unique_color_profiles) if unique_color_profiles else "none")
             )
             return
 
@@ -446,9 +527,13 @@ class RealSenseUsbMapper(Node):
             frames = pipeline.poll_for_frames()
             if not frames:
                 continue
+            aligner = self._aligners.get(role)
+            if aligner is not None:
+                frames = aligner.process(frames)
             depth_frame = frames.get_depth_frame()
             if not depth_frame:
                 continue
+            color_frame = frames.get_color_frame() if role in self._color_publishers else None
 
             stamp = self.get_clock().now().to_msg()
             frame_id = (
@@ -460,7 +545,8 @@ class RealSenseUsbMapper(Node):
             depth *= float(self._depth_scales[role])
 
             image = self._depth_to_image_msg(depth, stamp, frame_id)
-            camera_info = self._camera_info_msg(self._intrinsics[role], stamp, frame_id)
+            depth_intrinsics = self._frame_intrinsics(depth_frame, self._depth_intrinsics[role])
+            camera_info = self._camera_info_msg(depth_intrinsics, stamp, frame_id)
             self._depth_publishers[role].publish(image)
             self._camera_info_publishers[role].publish(camera_info)
 
@@ -473,6 +559,33 @@ class RealSenseUsbMapper(Node):
                 )
                 self._logged_depth_publishers.add(role)
 
+            if color_frame:
+                color_frame_id = (
+                    binding.get("rgb_optical_frame")
+                    or binding.get("color_optical_frame")
+                    or frame_id
+                )
+                color = self._np.asanyarray(color_frame.get_data())
+                color_image = self._color_to_image_msg(color, stamp, color_frame_id)
+                self._color_publishers[role].publish(color_image)
+                color_info_pub = self._color_camera_info_publishers.get(role)
+                if color_info_pub is not None:
+                    color_intrinsics = self._frame_intrinsics(
+                        color_frame,
+                        self._color_intrinsics[role],
+                    )
+                    color_info_pub.publish(
+                        self._camera_info_msg(color_intrinsics, stamp, color_frame_id)
+                    )
+                if role not in self._logged_color_publishers:
+                    active_profile = self._active_profiles.get(role, {})
+                    self.get_logger().info(
+                        f"Publishing RGB role={role} topic={binding['rgb_topic']} "
+                        f"resolution={color_image.width}x{color_image.height} "
+                        f"hz={active_profile.get('color_fps', self._stream['color_fps'])}"
+                    )
+                    self._logged_color_publishers.add(role)
+
     def _depth_to_image_msg(self, depth, stamp, frame_id):
         msg = Image()
         msg.header.stamp = stamp
@@ -484,6 +597,24 @@ class RealSenseUsbMapper(Node):
         msg.step = msg.width * 4
         msg.data = depth.astype(self._np.float32, copy=False).tobytes()
         return msg
+
+    def _color_to_image_msg(self, color, stamp, frame_id):
+        msg = Image()
+        msg.header.stamp = stamp
+        msg.header.frame_id = frame_id
+        msg.height = int(color.shape[0])
+        msg.width = int(color.shape[1])
+        msg.encoding = "rgb8"
+        msg.is_bigendian = False
+        msg.step = msg.width * 3
+        msg.data = color.astype(self._np.uint8, copy=False).tobytes()
+        return msg
+
+    def _frame_intrinsics(self, frame, fallback):
+        try:
+            return frame.profile.as_video_stream_profile().get_intrinsics()
+        except RuntimeError:
+            return fallback
 
     def _camera_info_msg(self, intrinsics, stamp, frame_id):
         msg = CameraInfo()

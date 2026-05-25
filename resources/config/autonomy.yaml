@@ -34,13 +34,16 @@ camera_bindings:
       imu_topic: /robot_4w4l/imu
       depth_topic: /robot_4w4l/adas_camera/depth/image_rect_raw
       camera_info_topic: /robot_4w4l/adas_camera/depth/camera_info
-      mount_frame: A_camera_mount_link
+      mount_frame: A_camera_link
       optical_frame: A_camera_link
 
     - role: front
       enabled: true
       model: d435
       camera_name: front_camera
+      imu_topic: /robot_4w4l/front_camera/imu
+      rgb_topic: /robot_4w4l/front_camera/rgb/image_raw
+      rgb_camera_info_topic: /robot_4w4l/front_camera/rgb/camera_info
       depth_topic: /robot_4w4l/front_camera/depth/image_rect_raw
       camera_info_topic: /robot_4w4l/front_camera/depth/camera_info
       mount_frame: F_camera_link
@@ -57,7 +60,7 @@ camera_bindings:
 
   real:
     - role: adas
-      enabled: false
+      enabled: true
       usb_port_id: ""
       model: d435
       camera_name: adas_camera
@@ -70,7 +73,7 @@ camera_bindings:
       imu_topic: /adas_camera/imu
       depth_topic: /adas_camera/depth/image_rect_raw
       camera_info_topic: /adas_camera/depth/camera_info
-      mount_frame: A_camera_mount_link
+      mount_frame: A_camera_link
       optical_frame: A_camera_link
 
     - role: front
@@ -78,6 +81,9 @@ camera_bindings:
       usb_port_id: "2-1.3"
       model: d435
       camera_name: front_camera
+      imu_topic: /front_camera/imu
+      rgb_topic: /front_camera/color/image_raw
+      rgb_camera_info_topic: /front_camera/color/camera_info
       depth_topic: /front_camera/depth/image_rect_raw
       camera_info_topic: /front_camera/depth/camera_info
       mount_frame: F_camera_link
@@ -97,12 +103,15 @@ stream:
   depth_width: 640
   depth_height: 480
   depth_fps: 60
+  color_width: 640
+  color_height: 480
+  color_fps: 30
   max_range: 2.5
   fallback_profiles:
-    - {depth_width: 640, depth_height: 480, depth_fps: 30}
-    - {depth_width: 848, depth_height: 480, depth_fps: 60}
-    - {depth_width: 640, depth_height: 360, depth_fps: 60}
-    - {depth_width: 424, depth_height: 240, depth_fps: 60}
+    - {depth_width: 640, depth_height: 480, depth_fps: 30, color_width: 640, color_height: 480, color_fps: 30}
+    - {depth_width: 848, depth_height: 480, depth_fps: 60, color_width: 848, color_height: 480, color_fps: 30}
+    - {depth_width: 640, depth_height: 360, depth_fps: 60, color_width: 640, color_height: 360, color_fps: 30}
+    - {depth_width: 424, depth_height: 240, depth_fps: 60, color_width: 424, color_height: 240, color_fps: 30}
 
 robot_state_publisher:
   ros__parameters:
@@ -113,6 +122,7 @@ robot_state_publisher:
 pointcloud_merge_node:
   ros__parameters:
     target_frame: 4w4l/base_link
+    frame_prefix: 4w4l/
     publish_rate_hz: 20.0
     max_cloud_age_sec: 0.0
     respect_autonomy_mode: true
@@ -122,6 +132,18 @@ pointcloud_merge_node:
       min_range: 0.05
       max_range: 2.5
       pixel_stride: 2
+
+imu_stabilized_tf_node:
+  ros__parameters:
+    imu_topic: /robot_4w4l/front_camera/imu
+    base_frame_id: 4w4l/base_link
+    stabilized_frame_id: 4w4l/base_stabilized
+    publish_rate_hz: 100.0
+    low_pass_alpha: 0.08
+    min_accel_norm: 3.0
+    max_accel_norm: 20.0
+    roll_sign: -1.0
+    pitch_sign: -1.0
 
 elevation_mapping_node:
   ros__parameters:
@@ -226,7 +248,7 @@ elevation_mapping_node:
 autonomy_manager:
   ros__parameters:
     startup_mode: IDLE
-    pose_topic: /odomimu
+    pose_topic: /rtabmap/odom
     robot_report_topic: /robot_report
     map_dir: src/autonomy/resources/map
     speed_limit: 0.0
@@ -236,10 +258,10 @@ autonomy_manager:
     publish_rate_hz: 10.0
     managed_nodes:
       idle: []
-      drive: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node]
-      adas: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, rl_local_planner_node]
-      fsd: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, openvins_vio_node, livox_monitor_node, point_lio_monitor_node, rl_local_planner_node, global_planner_node]
-      tracking: [realsense_usb_mapper, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
+      drive: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node]
+      adas: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, rtabmap_localization_node, rl_local_planner_node]
+      fsd: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, rtabmap_localization_node, livox_monitor_node, point_lio_monitor_node, rl_local_planner_node, global_planner_node]
+      tracking: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
       mapping: [livox_monitor_node, point_lio_monitor_node, point_lio_map_saver_node]
 
 rl_local_planner_node:
@@ -319,28 +341,59 @@ tracking_follower_node:
     target_timeout_sec: 0.5
     publish_rate_hz: 20.0
 
-openvins_vio_node:
+rtabmap_localization_node:
   ros__parameters:
     enabled: true
-    settings_config: src/autonomy/resources/config/openvins.yaml
-    settings_profile_real: real
-    settings_profile_simulation: simulation
-    verbosity: INFO
-    use_stereo: true
-    max_cameras: 2
-    odom_topic: /odomimu
-    pose2d_topic: /localization/current_pose
+    simulation_camera_role: adas
+    real_camera_role: adas
+    simulation_rgb_topic: /robot_4w4l/adas_camera/rgb/image_raw
+    simulation_depth_topic: /robot_4w4l/adas_camera/depth/image_rect_raw
+    simulation_camera_info_topic: /robot_4w4l/adas_camera/rgb/camera_info
+    real_rgb_topic: /adas_camera/color/image_raw
+    real_depth_topic: /adas_camera/depth/image_rect_raw
+    real_camera_info_topic: /adas_camera/color/camera_info
+    odom_topic: /rtabmap/odom
+    odom_frame_id: odom
+    frame_id: 4w4l/base_footprint
+    approx_sync: true
+    approx_sync_max_interval: 0.05
+    queue_size: 10
+    publish_tf: false
+    publish_null_when_lost: false
+    wait_for_transform: 0.2
+    subscribe_depth: true
+    "Reg/Force3DoF": "true"
+    "Odom/GuessMotion": "true"
+    "Odom/KeyFrameThr": "0.15"
+    "Odom/VisKeyFrameThr": "30"
+    "OdomF2M/MaxSize": "4000"
+    "OdomF2M/MaxNewFeatures": "500"
+    "OdomF2M/ValidDepthRatio": "0.02"
+    "Vis/MinInliers": "8"
+    "Vis/MaxFeatures": "2000"
+    "GFTT/QualityLevel": "0.0005"
+    "GFTT/MinDistance": "3"
 
-vio_pose_adapter_node:
+localization_pose_adapter_node:
   ros__parameters:
-    odom_topic: /odomimu
+    odom_topic: /rtabmap/odom
     pose2d_topic: /localization/current_pose
-    heartbeat_name: openvins_vio_node
+    path_topic: /localization/trajectory
+    heartbeat_name: rtabmap_localization_node
+    odom_frame_id: odom
+    base_frame_id: 4w4l/base_footprint
+    odom_timeout_sec: 0.5
+    recovery_timeout_sec: 3.0
+    recovery_cooldown_sec: 8.0
+    path_min_distance: 0.03
+    path_max_poses: 2000
+    invalid_odom_recovery_threshold: 5
+    reset_odom_service: /reset_odom
     publish_rate_hz: 10.0
 
 global_planner_node:
   ros__parameters:
-    enabled: false
+    enabled: true
     planner_backend: astar
     current_pose_topic: /localization/current_pose
     goal_topic: /goal_pose

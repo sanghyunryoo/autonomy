@@ -20,6 +20,7 @@
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>tf2</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>tf2_ros</depend>
@@ -27,7 +28,7 @@
   <exec_depend>rosidl_default_runtime</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
-  <exec_depend>ov_msckf</exec_depend>
+  <exec_depend>rtabmap_odom</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-opencv</exec_depend>

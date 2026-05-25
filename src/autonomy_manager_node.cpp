@@ -145,7 +145,7 @@ public:
   : Node("autonomy_manager")
   {
     declare_parameter<std::string>("startup_mode", "IDLE");
-    declare_parameter<std::string>("pose_topic", "/odomimu");
+    declare_parameter<std::string>("pose_topic", "/rtabmap/odom");
     declare_parameter<std::string>("robot_report_topic", "/robot_report");
     declare_parameter<std::string>("map_dir", "");
     declare_parameter<double>("speed_limit", 0.0);
@@ -161,7 +161,7 @@ public:
       {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node"});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.adas",
-      {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node", "openvins_vio_node", "ai_detection_node"});
+      {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node", "rtabmap_localization_node", "ai_detection_node"});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.fsd",
       {
@@ -171,7 +171,7 @@ public:
         "ai_detection_node",
         "rl_local_planner_node",
         "global_planner_node",
-        "openvins_vio_node",
+        "rtabmap_localization_node",
       });
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.mapping",

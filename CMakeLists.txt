@@ -28,6 +28,7 @@ find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -116,12 +117,27 @@ set_target_properties(ai_detection_node PROPERTIES
   INSTALL_RPATH "${ONNXRUNTIME_ROOT}/lib"
 )
 
-add_executable(vio_pose_adapter_node
-  src/vio_pose_adapter_node.cpp
+add_executable(localization_pose_adapter_node
+  src/localization_pose_adapter_node.cpp
 )
-target_include_directories(vio_pose_adapter_node PRIVATE include)
-ament_target_dependencies(vio_pose_adapter_node geometry_msgs nav_msgs rclcpp std_msgs)
-target_link_libraries(vio_pose_adapter_node "${cpp_typesupport_target}")
+target_include_directories(localization_pose_adapter_node PRIVATE include)
+ament_target_dependencies(localization_pose_adapter_node geometry_msgs nav_msgs rclcpp std_msgs std_srvs tf2_ros)
+target_link_libraries(localization_pose_adapter_node "${cpp_typesupport_target}")
+
+add_executable(imu_stabilized_tf_node
+  src/imu_stabilized_tf_node.cpp
+)
+target_include_directories(imu_stabilized_tf_node PRIVATE include)
+ament_target_dependencies(
+  imu_stabilized_tf_node
+  geometry_msgs
+  rclcpp
+  sensor_msgs
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
+)
 
 add_executable(global_planner_node
   src/global_planner_node.cpp
@@ -161,12 +177,13 @@ install(TARGETS
   pointcloud_merge_node
   elevation_mapping_node
   global_planner_node
+  imu_stabilized_tf_node
   livox_monitor_node
+  localization_pose_adapter_node
   rl_local_planner_node
   point_lio_monitor_node
   point_lio_map_saver_node
   tracking_follower_node
-  vio_pose_adapter_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
