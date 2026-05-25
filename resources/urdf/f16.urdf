@@ -5,6 +5,19 @@
 <robot
   name="RobotAssembly_v2_10_cam_2">
   <link
+    name="base_footprint" />
+  <joint
+    name="base_footprint_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 0.5"
+      rpy="0 0 0" />
+    <parent
+      link="base_footprint" />
+    <child
+      link="base_link" />
+  </joint>
+  <link
     name="base_link">
     <inertial>
       <origin

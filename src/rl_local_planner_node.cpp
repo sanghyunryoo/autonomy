@@ -436,7 +436,7 @@ private:
 
     nav_msgs::msg::OccupancyGrid grid;
     grid.header.stamp = now();
-    grid.header.frame_id = scan.header.frame_id.empty() ? costmap_frame_id_ : scan.header.frame_id;
+    grid.header.frame_id = costmap_frame_id_;
     grid.info.resolution = scan.resolution;
     grid.info.width = scan.width;
     grid.info.height = scan.height;

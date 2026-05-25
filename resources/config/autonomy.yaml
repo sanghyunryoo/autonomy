@@ -254,7 +254,7 @@ rl_local_planner_node:
     command_user_topic: /command_user
     local_costmap_topic: ~/local_costmap
     footprint_topic: ~/footprint
-    costmap_frame_id: base_link
+    costmap_frame_id: 4w4l/base_footprint
     footprint: [0.35, 0.25, 0.35, -0.25, -0.35, -0.25, -0.35, 0.25]
     autonomy_status_topic: /autonomy_manager/status
     publish_rate_hz: 20.0
