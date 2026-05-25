@@ -960,14 +960,29 @@ ensure_livox_ros_driver2() {
   fi
   local driver_dir="${package_dir}/third_party/livox_ros_driver2"
   local workspace_driver="${workspace_dir}/src/livox_ros_driver2"
-  if [[ ! -f "${driver_dir}/package.xml" ]]; then
+  local package_xml=""
+  package_xml="$(find_ros_package_xml "${driver_dir}" "livox_ros_driver2")"
+  if [[ -z "${package_xml}" ]]; then
     if [[ "${SKIP_LIVOX_CLONE:-0}" == "1" ]]; then
       die "livox_ros_driver2 not found at ${driver_dir}. Add it there or unset SKIP_LIVOX_CLONE."
     fi
     local repo="${LIVOX_ROS_DRIVER2_REPO:-https://github.com/Livox-SDK/livox_ros_driver2.git}"
     local ref="${LIVOX_ROS_DRIVER2_REF:-master}"
-    log "Cloning livox_ros_driver2 ${ref} into ${driver_dir}"
-    git clone --recursive --branch "${ref}" "${repo}" "${driver_dir}"
+    if [[ -d "${driver_dir}/.git" ]]; then
+      log "Updating livox_ros_driver2 ${ref} in ${driver_dir}"
+      cd "${driver_dir}"
+      git fetch --tags --prune
+      git checkout "${ref}"
+    elif [[ ! -e "${driver_dir}" || -z "$(find "${driver_dir}" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+      rm -rf "${driver_dir}"
+      log "Cloning livox_ros_driver2 ${ref} into ${driver_dir}"
+      git clone --recursive --branch "${ref}" "${repo}" "${driver_dir}"
+    else
+      die "${driver_dir} exists but no livox_ros_driver2 package.xml was found under it."
+    fi
+    package_xml="$(find_ros_package_xml "${driver_dir}" "livox_ros_driver2")"
+    [[ -n "${package_xml}" ]] ||
+      die "livox_ros_driver2 clone completed, but package.xml was not found under ${driver_dir}."
   fi
 
   mkdir -p "${workspace_dir}/src"
@@ -984,6 +999,20 @@ ensure_livox_ros_driver2() {
     die "${workspace_driver} exists but is not the managed livox_ros_driver2 symlink."
   fi
   ln -s "${driver_dir}" "${workspace_driver}"
+}
+
+find_ros_package_xml() {
+  local root="$1"
+  local package_name="$2"
+  [[ -d "${root}" ]] || return 0
+
+  local package_xml
+  while IFS= read -r package_xml; do
+    if grep -q "<name>${package_name}</name>" "${package_xml}"; then
+      printf '%s\n' "${package_xml}"
+      return 0
+    fi
+  done < <(find -L "${root}" -maxdepth 4 -name package.xml -print 2>/dev/null)
 }
 
 ensure_point_lio_ros2() {
@@ -1105,7 +1134,8 @@ build_autonomy_package() {
     --symlink-install
     --packages-up-to autonomy
   )
-  if [[ "${build_livox}" == "ON" && -f "${workspace_dir}/src/livox_ros_driver2/package.xml" ]]; then
+  if [[ "${build_livox}" == "ON" &&
+    -n "$(find_ros_package_xml "${workspace_dir}/src/livox_ros_driver2" "livox_ros_driver2")" ]]; then
     colcon_args+=(livox_ros_driver2)
   fi
   if [[ "${build_point_lio}" == "ON" && -f "${workspace_dir}/src/point_lio_ros2/package.xml" ]]; then
