@@ -1143,6 +1143,13 @@ build_autonomy_package() {
     cmake_args+=(-DCMAKE_TOOLCHAIN_FILE="${CMAKE_TOOLCHAIN_FILE}")
   fi
 
+  if [[ "${build_livox}" == "ON" ]]; then
+    cmake_args+=(
+      -DROS_EDITION=ROS2
+      -DDISTRO_ROS="${ros_distro}"
+    )
+  fi
+
   log "Building autonomy for ${target_arch}"
   echo "Workspace: ${workspace_dir}"
   echo "ONNX Runtime: ${ort_dir}"
