@@ -152,23 +152,41 @@ elevation_mapping_node:
     output_cloud_topic: ~/elevation_points
     output_masked_height_scan_topic: ~/masked_height_scan
     command_filter_topic: /command_filter
+    command_filter:
+      qos:
+        history: keep_last
+        depth: 10
+        reliability: reliable
+        durability: volatile
     operation_mode: adas
     respect_autonomy_mode: true
     autonomy_status_topic: /autonomy_manager/status
 
     dds:
+      domain_id: 1
+      lin_vel:
+        topic: lin_vel
+        qos:
+          history: keep_last
+          depth: 1
+          reliability: best_effort
+          durability: volatile
       height_map:
         enabled: true
-        domain_id: 0
         topic: height_map
         type: core_dds::HeightMap
+        qos:
+          history: keep_last
+          depth: 1
+          reliability: best_effort
+          durability: volatile
 
     grid:
-      resolution: 0.05
-      x_min: -0.80
-      x_max: 0.80
-      y_min: -0.55
-      y_max: 0.55
+      resolution: 0.10
+      x_min: -0.60
+      x_max: 0.60
+      y_min: -0.60
+      y_max: 0.60
       min_z: -0.60
       max_z: 0.50
 

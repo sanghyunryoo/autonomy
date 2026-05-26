@@ -1,19 +1,9 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <string>
 
 #include "height_map_model.hpp"
-
-namespace eprosima::fastdds::dds
-{
-class DataWriter;
-class DomainParticipant;
-class Publisher;
-class Topic;
-class TypeSupport;
-}  // namespace eprosima::fastdds::dds
 
 namespace autonomy
 {
@@ -43,11 +33,9 @@ private:
   std::string type_name_;
   std::string error_;
 
-  eprosima::fastdds::dds::DomainParticipant * participant_{nullptr};
-  eprosima::fastdds::dds::Publisher * publisher_{nullptr};
-  eprosima::fastdds::dds::Topic * topic_{nullptr};
-  eprosima::fastdds::dds::DataWriter * writer_{nullptr};
-  std::unique_ptr<eprosima::fastdds::dds::TypeSupport> type_support_;
+  int participant_{0};
+  int topic_{0};
+  int writer_{0};
 };
 
 }  // namespace autonomy

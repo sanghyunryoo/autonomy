@@ -54,6 +54,7 @@ void ElevationMappingNode::loadParameters()
   autonomy_status_topic_ = declare_parameter<std::string>(
     "autonomy_status_topic", autonomy_status_topic_);
 
+  dds_domain_id_ = declare_parameter<int>("dds.domain_id", dds_domain_id_);
   dds_height_map_enabled_ = declare_parameter<bool>("dds.height_map.enabled", dds_height_map_enabled_);
   dds_domain_id_ = declare_parameter<int>("dds.height_map.domain_id", dds_domain_id_);
   dds_height_map_topic_ = declare_parameter<std::string>(
@@ -175,7 +176,7 @@ void ElevationMappingNode::createIo()
   heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
     "/autonomy/heartbeat/elevation_mapping_node", 10);
   command_filter_pub_ = create_publisher<core::msg::CommandFilter>(
-    command_filter_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile());
+    command_filter_topic_, rclcpp::QoS(rclcpp::KeepLast(10)).reliable().durability_volatile());
   heartbeat_timer_ = create_wall_timer(
     std::chrono::milliseconds(500),
     [this]() { publishHeartbeat(); });

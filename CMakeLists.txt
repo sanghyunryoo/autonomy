@@ -18,8 +18,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(core REQUIRED)
-find_package(fastcdr REQUIRED)
-find_package(fastrtps REQUIRED)
+find_package(CycloneDDS REQUIRED CONFIG)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -40,6 +39,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MaskedHeightScan.msg"
   "srv/SetAutonomyMode.srv"
   DEPENDENCIES geometry_msgs std_msgs
+)
+
+idlc_generate(
+  TARGET autonomy_dds_types
+  FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/idl/HeightMap.idl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/idl/LinearVelocity.idl"
 )
 
 add_executable(pointcloud_merge_node
@@ -85,7 +91,7 @@ ament_target_dependencies(elevation_mapping_node
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(pointcloud_merge_node "${cpp_typesupport_target}")
 target_link_libraries(elevation_mapping_node "${cpp_typesupport_target}")
-target_link_libraries(elevation_mapping_node fastcdr fastrtps)
+target_link_libraries(elevation_mapping_node autonomy_dds_types CycloneDDS::ddsc)
 
 add_executable(autonomy_manager_node
   src/autonomy_manager_node.cpp
@@ -198,12 +204,22 @@ install(DIRECTORY docs
 install(PROGRAMS
   scripts/build.sh
   scripts/launch.sh
+  scripts/run_keyboard_filter_odom_dds_test.sh
+  scripts/run_dds_echo_heightmap_linear_velocity.sh
+  scripts/run_dds_heightmap_linear_velocity_test.sh
   scripts/generate_realsense_mapping_from_urdf.py
   scripts/generate_height_filter_from_urdf.py
   scripts/realsense_usb_mapper.py
   scripts/realsense_serial_mapper.py
   scripts/show_realsense_usb_ports.py
   scripts/show_realsense_serials.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(FILES
+  scripts/dds_echo_heightmap_linear_velocity.cpp
+  scripts/dds_heightmap_linear_velocity_test.cpp
+  scripts/keyboard_filter_odom_dds_test.cpp
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -61,7 +61,7 @@ private:
   int8_t autonomy_mode_{autonomy::msg::AutonomyState::IDLE};
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
   bool dds_height_map_enabled_{true};
-  int dds_domain_id_{0};
+  int dds_domain_id_{1};
   std::string dds_height_map_topic_{"height_map"};
   std::string dds_height_map_type_{"core_dds::HeightMap"};
   GridSpec grid_spec_;

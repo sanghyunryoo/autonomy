@@ -12,8 +12,7 @@
   <depend>geometry_msgs</depend>
   <depend>core</depend>
   <depend>cv_bridge</depend>
-  <depend>fastcdr</depend>
-  <depend>fastrtps</depend>
+  <depend>cyclonedds</depend>
   <depend>message_filters</depend>
   <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
