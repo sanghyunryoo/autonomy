@@ -236,8 +236,12 @@ void ElevationMappingNode::createIo()
         auto next = std::chrono::steady_clock::now() + period;
         while (output_threads_running_) {
           std::this_thread::sleep_until(next);
-          next += period;
           publishDdsHeightMap();
+          next += period;
+          const auto now = std::chrono::steady_clock::now();
+          if (next < now) {
+            next = now + period;
+          }
         }
       });
     }
@@ -250,8 +254,12 @@ void ElevationMappingNode::createIo()
     auto next = std::chrono::steady_clock::now() + period;
     while (output_threads_running_) {
       std::this_thread::sleep_until(next);
-      next += period;
       publishElevationOutputs();
+      next += period;
+      const auto now = std::chrono::steady_clock::now();
+      if (next < now) {
+        next = now + period;
+      }
     }
   });
 

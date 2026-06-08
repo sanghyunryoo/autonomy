@@ -159,6 +159,38 @@ configure_realtime_permissions() {
   sudo setcap cap_sys_nice+ep "${capability_path}"
 }
 
+clear_realtime_permissions_when_disabled() {
+  local config_file="$1"
+  [[ -f "${config_file}" ]] || return 0
+
+  local priority
+  priority="$(read_dds_thread_priority "${config_file}")"
+  if [[ "${priority}" -gt 0 ]]; then
+    return 0
+  fi
+
+  if ! command -v setcap >/dev/null 2>&1 || ! command -v getcap >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local prefix node_path capability_path
+  prefix="$(ros2 pkg prefix autonomy)"
+  node_path="${prefix}/lib/autonomy/elevation_mapping_node"
+  [[ -e "${node_path}" ]] || return 0
+  if command -v readlink >/dev/null 2>&1; then
+    capability_path="$(readlink -f "${node_path}")"
+  elif command -v realpath >/dev/null 2>&1; then
+    capability_path="$(realpath "${node_path}")"
+  else
+    capability_path="${node_path}"
+  fi
+  [[ -f "${capability_path}" ]] || return 0
+  if getcap "${capability_path}" | grep -q "cap_sys_nice"; then
+    echo "Clearing realtime permission for DDS height map thread: ${capability_path}"
+    sudo setcap -r "${capability_path}"
+  fi
+}
+
 interface_has_ip() {
   local iface="$1"
   local local_host="$2"
@@ -262,7 +294,7 @@ configure_wired_dds_network() {
 configure_wired_dds_network
 
 resolved_autonomy_config="$(resolve_autonomy_config)"
-configure_realtime_permissions "${resolved_autonomy_config}"
+clear_realtime_permissions_when_disabled "${resolved_autonomy_config}"
 
 has_simulation_arg=false
 for arg in "$@"; do

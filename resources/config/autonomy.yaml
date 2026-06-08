@@ -184,7 +184,7 @@ elevation_mapping_node:
         topic: height_map
         type: core_dds::HeightMap
         publish_rate_hz: 50.0
-        thread_priority: 80
+        thread_priority: 0
         qos:
           history: keep_last
           depth: 1
