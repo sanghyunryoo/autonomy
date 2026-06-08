@@ -3,6 +3,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <geometry_msgs/msg/pose2_d.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
@@ -13,6 +14,8 @@
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/empty.hpp>
 #include <tf2_ros/transform_broadcaster.h>
+
+#include "dds_linear_velocity_publisher.hpp"
 
 namespace autonomy
 {
@@ -37,6 +40,10 @@ public:
     declare_parameter<double>("path_min_distance", 0.03);
     declare_parameter<int>("path_max_poses", 2000);
     declare_parameter<int>("invalid_odom_recovery_threshold", 3);
+    declare_parameter<int>("dds.domain_id", 1);
+    declare_parameter<bool>("dds.lin_vel.enabled", true);
+    declare_parameter<std::string>("dds.lin_vel.topic", "lin_vel");
+    declare_parameter<std::string>("dds.lin_vel.type", "core_dds::LinearVelocity");
 
     heartbeat_name_ = get_parameter("heartbeat_name").as_string();
     odom_frame_id_ = get_parameter("odom_frame_id").as_string();
@@ -49,6 +56,10 @@ public:
     path_max_poses_ = std::max(1, static_cast<int>(get_parameter("path_max_poses").as_int()));
     invalid_odom_recovery_threshold_ =
       std::max(1, static_cast<int>(get_parameter("invalid_odom_recovery_threshold").as_int()));
+    dds_domain_id_ = std::max(0, static_cast<int>(get_parameter("dds.domain_id").as_int()));
+    dds_lin_vel_enabled_ = get_parameter("dds.lin_vel.enabled").as_bool();
+    dds_lin_vel_topic_ = get_parameter("dds.lin_vel.topic").as_string();
+    dds_lin_vel_type_ = get_parameter("dds.lin_vel.type").as_string();
     current_transform_.transform.rotation.w = 1.0;
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     reset_odom_client_ = create_client<std_srvs::srv::Empty>(reset_odom_service_);
@@ -69,6 +80,27 @@ public:
     heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
       "/autonomy/heartbeat/" + heartbeat_name_,
       10);
+
+    if (dds_lin_vel_enabled_) {
+      dds_lin_vel_pub_ = std::make_unique<DdsLinearVelocityPublisher>(
+        static_cast<std::uint32_t>(dds_domain_id_),
+        dds_lin_vel_topic_,
+        dds_lin_vel_type_);
+      if (!dds_lin_vel_pub_->isReady()) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "DDS linear velocity writer disabled after init failure: %s",
+          dds_lin_vel_pub_->error().c_str());
+        dds_lin_vel_pub_.reset();
+      } else {
+        RCLCPP_INFO(
+          get_logger(),
+          "Publishing DDS linear velocity: domain_id=%d topic=%s type=%s",
+          dds_domain_id_,
+          dds_lin_vel_topic_.c_str(),
+          dds_lin_vel_type_.c_str());
+      }
+    }
 
     const auto period = std::chrono::duration<double>(
       1.0 / std::max(1.0, get_parameter("publish_rate_hz").as_double()));
@@ -112,6 +144,30 @@ private:
     has_odom_ = true;
     has_invalid_odom_ = false;
     appendPathPose(odom);
+    publishDdsLinearVelocity(odom);
+  }
+
+  void publishDdsLinearVelocity(const nav_msgs::msg::Odometry & odom)
+  {
+    if (!dds_lin_vel_pub_) {
+      return;
+    }
+
+    const auto & linear = odom.twist.twist.linear;
+    if (!isFinite(linear.x) || !isFinite(linear.y) || !isFinite(linear.z)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Skipping DDS linear velocity publish because odometry twist is non-finite");
+      return;
+    }
+
+    dds_lin_vel_pub_->publish({
+      static_cast<float>(linear.x),
+      static_cast<float>(linear.y),
+      static_cast<float>(linear.z),
+    });
   }
 
   void tick()
@@ -294,6 +350,10 @@ private:
   std::string odom_frame_id_;
   std::string base_frame_id_;
   std::string reset_odom_service_;
+  int dds_domain_id_{1};
+  bool dds_lin_vel_enabled_{true};
+  std::string dds_lin_vel_topic_{"lin_vel"};
+  std::string dds_lin_vel_type_{"core_dds::LinearVelocity"};
   double odom_timeout_sec_{0.5};
   double recovery_timeout_sec_{1.0};
   double recovery_cooldown_sec_{3.0};
@@ -318,6 +378,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr reset_odom_client_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+  std::unique_ptr<DdsLinearVelocityPublisher> dds_lin_vel_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

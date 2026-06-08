@@ -124,11 +124,13 @@ set_target_properties(ai_detection_node PROPERTIES
 )
 
 add_executable(localization_pose_adapter_node
+  src/dds_linear_velocity_publisher.cpp
   src/localization_pose_adapter_node.cpp
 )
 target_include_directories(localization_pose_adapter_node PRIVATE include)
 ament_target_dependencies(localization_pose_adapter_node geometry_msgs nav_msgs rclcpp std_msgs std_srvs tf2_ros)
 target_link_libraries(localization_pose_adapter_node "${cpp_typesupport_target}")
+target_link_libraries(localization_pose_adapter_node autonomy_dds_types CycloneDDS::ddsc)
 
 add_executable(imu_stabilized_tf_node
   src/imu_stabilized_tf_node.cpp

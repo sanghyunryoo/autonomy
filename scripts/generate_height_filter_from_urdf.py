@@ -1063,7 +1063,7 @@ def parse_args():
     )
     parser.add_argument(
         "--urdf",
-        default=str(root / "resources" / "urdf" / "f16.urdf"),
+        default=str(root / "resources" / "urdf" / "f8.urdf"),
         help="Robot URDF path.",
     )
     parser.add_argument(

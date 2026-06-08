@@ -71,6 +71,8 @@ Environment:
   LIVOX_SDK2_REPO            Livox SDK2 repository. Default: https://github.com/Livox-SDK/Livox-SDK2.git.
   LIVOX_ROS_DRIVER2_REPO     Livox ROS driver 2 repository. Default: https://github.com/Livox-SDK/livox_ros_driver2.git.
   POINT_LIO_ROS2_REPO        Point-LIO ROS 2 repository. Default: https://github.com/dfloreaa/point_lio_ros2.git.
+  CycloneDDS_DIR             Directory containing CycloneDDSConfig.cmake when auto-detection is not enough.
+  CYCLONEDDS_DIR             Same as CycloneDDS_DIR.
   SKIP_LIVOX_CLONE           Set to 1 when Livox sources are already available.
   SKIP_POINT_LIO_CLONE       Set to 1 when Point-LIO is already available.
   ALLOW_CONDA_BUILD_ENV      Set to 1 to keep conda paths in the build environment.
@@ -110,6 +112,38 @@ all_apt_packages_installed() {
     fi
   done
   return 0
+}
+
+apt_package_available() {
+  apt-cache show "$1" >/dev/null 2>&1
+}
+
+path_list_contains() {
+  local value="${1:-}"
+  local needle="${2:-}"
+  [[ -n "${needle}" ]] || return 1
+  case ":${value}:" in
+    *":${needle}:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+prepend_path_once() {
+  local var_name="$1"
+  local dir="$2"
+  local current="${!var_name:-}"
+
+  [[ -n "${dir}" && -d "${dir}" ]] || return 0
+  if path_list_contains "${current}" "${dir}"; then
+    return 0
+  fi
+
+  if [[ -n "${current}" ]]; then
+    printf -v "${var_name}" '%s:%s' "${dir}" "${current}"
+  else
+    printf -v "${var_name}" '%s' "${dir}"
+  fi
+  export "${var_name}"
 }
 
 require_positive_int() {
@@ -509,6 +543,7 @@ install_ros_packages() {
     "ros-${ros_distro}-ament-cmake"
     "ros-${ros_distro}-ament-lint-auto"
     "ros-${ros_distro}-ament-lint-common"
+    "ros-${ros_distro}-cyclonedds"
     "ros-${ros_distro}-cv-bridge"
     "ros-${ros_distro}-diagnostic-updater"
     "ros-${ros_distro}-geometry-msgs"
@@ -518,6 +553,7 @@ install_ros_packages() {
     "ros-${ros_distro}-pcl-conversions"
     "ros-${ros_distro}-pcl-ros"
     "ros-${ros_distro}-robot-state-publisher"
+    "ros-${ros_distro}-rmw-cyclonedds-cpp"
     "ros-${ros_distro}-rosidl-default-generators"
     "ros-${ros_distro}-rosidl-default-runtime"
     "ros-${ros_distro}-rtabmap-odom"
@@ -750,6 +786,112 @@ source_ros() {
   # shellcheck disable=SC1090
   source "${ros_setup}"
   set -u
+}
+
+cyclonedds_cmake_dir=""
+
+check_cyclonedds_config_dir() {
+  local dir="${1:-}"
+  [[ -n "${dir}" && -d "${dir}" ]] || return 1
+  [[ -f "${dir}/CycloneDDSConfig.cmake" || -f "${dir}/cyclonedds-config.cmake" ]] || return 1
+  cd "${dir}" && pwd
+}
+
+find_cyclonedds_config_dir() {
+  local candidate
+
+  for candidate in "${CycloneDDS_DIR:-}" "${CYCLONEDDS_DIR:-}"; do
+    check_cyclonedds_config_dir "${candidate}" && return 0
+  done
+
+  local prefix
+  IFS=':' read -r -a cmake_prefix_entries <<< "${CMAKE_PREFIX_PATH:-}"
+  for prefix in "${cmake_prefix_entries[@]}"; do
+    [[ -n "${prefix}" ]] || continue
+    for candidate in \
+      "${prefix}/share/CycloneDDS/cmake" \
+      "${prefix}/lib/cmake/CycloneDDS" \
+      "${prefix}/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || true)/cmake/CycloneDDS"; do
+      check_cyclonedds_config_dir "${candidate}" && return 0
+    done
+  done
+
+  for candidate in \
+    "/opt/ros/${ros_distro}/share/CycloneDDS/cmake" \
+    "/opt/ros/${ros_distro}/lib/cmake/CycloneDDS" \
+    "/usr/local/lib/cmake/CycloneDDS" \
+    "/usr/local/share/CycloneDDS/cmake" \
+    "/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || true)/cmake/CycloneDDS" \
+    "/usr/lib/cmake/CycloneDDS" \
+    "/usr/share/CycloneDDS/cmake"; do
+    check_cyclonedds_config_dir "${candidate}" && return 0
+  done
+
+  local found
+  found="$(find "/opt/ros/${ros_distro}" /usr/local /usr \
+    -maxdepth 7 -type f \
+    \( -name CycloneDDSConfig.cmake -o -name cyclonedds-config.cmake \) \
+    -print -quit 2>/dev/null || true)"
+  if [[ -n "${found}" ]]; then
+    dirname "${found}"
+    return 0
+  fi
+
+  return 1
+}
+
+register_cyclonedds_config_dir() {
+  local config_dir="$1"
+  cyclonedds_cmake_dir="${config_dir}"
+  export CycloneDDS_DIR="${config_dir}"
+  export CYCLONEDDS_DIR="${config_dir}"
+
+  # Make nested/standalone CMake invocations work too, not only the top-level colcon build.
+  prepend_path_once CMAKE_PREFIX_PATH "${config_dir}"
+
+  local inferred_prefix
+  if inferred_prefix="$(cd "${config_dir}/../../.." 2>/dev/null && pwd)"; then
+    prepend_path_once CMAKE_PREFIX_PATH "${inferred_prefix}"
+  fi
+
+  log "Using CycloneDDS CMake config: ${cyclonedds_cmake_dir}"
+}
+
+ensure_cyclonedds_cmake_config() {
+  local config_dir
+  if config_dir="$(find_cyclonedds_config_dir)"; then
+    register_cyclonedds_config_dir "${config_dir}"
+    return
+  fi
+
+  warn "CycloneDDSConfig.cmake was not found before build."
+
+  if [[ "${install_ros}" != "ON" ]]; then
+    die "CycloneDDS CMake config is missing and --skip-ros was used. Install ros-${ros_distro}-cyclonedds or set CycloneDDS_DIR to the directory containing CycloneDDSConfig.cmake."
+  fi
+
+  setup_ros_apt_repo
+  sudo apt-get update
+
+  local packages=(
+    "ros-${ros_distro}-cyclonedds"
+    "ros-${ros_distro}-rmw-cyclonedds-cpp"
+  )
+
+  if apt_package_available cyclonedds-dev; then
+    packages+=(cyclonedds-dev)
+  fi
+
+  log "Installing CycloneDDS packages required by find_package(CycloneDDS)"
+  apt_install "${packages[@]}"
+
+  source_ros
+  if config_dir="$(find_cyclonedds_config_dir)"; then
+    register_cyclonedds_config_dir "${config_dir}"
+    return
+  fi
+
+  die "CycloneDDS packages were installed, but CycloneDDSConfig.cmake is still missing. Set CycloneDDS_DIR explicitly and rerun."
 }
 
 build_realsense_ros_driver() {
@@ -1107,6 +1249,7 @@ build_autonomy_package() {
     install_ros_packages
   fi
   source_ros
+  ensure_cyclonedds_cmake_config
 
   if [[ "${clean}" == "ON" ]]; then
     if [[ "${run_jetson_setup}" == "ON" ]]; then
@@ -1126,6 +1269,12 @@ build_autonomy_package() {
     -DENABLE_ARUCO_TAGS=OFF
     -DCMAKE_IGNORE_PREFIX_PATH="/root/miniconda3"
   )
+
+  if [[ -n "${cyclonedds_cmake_dir:-}" ]]; then
+    cmake_args+=(
+      -DCycloneDDS_DIR="${cyclonedds_cmake_dir}"
+    )
+  fi
 
   if [[ -n "${PYTHON_EXECUTABLE:-}" ]]; then
     cmake_args+=(

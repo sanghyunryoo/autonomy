@@ -22,7 +22,7 @@ operation_modes:
 camera_bindings:
   simulation:
     - role: adas
-      enabled: true
+      enabled: false
       model: d435
       camera_name: adas_camera
       rgb_topic: /robot_4w4l/adas_camera/rgb/image_raw
@@ -46,11 +46,11 @@ camera_bindings:
       rgb_camera_info_topic: /robot_4w4l/front_camera/rgb/camera_info
       depth_topic: /robot_4w4l/front_camera/depth/image_rect_raw
       camera_info_topic: /robot_4w4l/front_camera/depth/camera_info
-      mount_frame: F_camera_link
-      optical_frame: F_camera_link
+      mount_frame: camera_link
+      optical_frame: camera_link
 
     - role: rear
-      enabled: true
+      enabled: false
       model: d435
       camera_name: rear_camera
       depth_topic: /robot_4w4l/rear_camera/depth/image_rect_raw
@@ -113,10 +113,17 @@ stream:
     - {depth_width: 640, depth_height: 360, depth_fps: 60, color_width: 640, color_height: 360, color_fps: 30}
     - {depth_width: 424, depth_height: 240, depth_fps: 60, color_width: 424, color_height: 240, color_fps: 30}
 
+dds_network:
+  mode: wired  # wired or wireless
+  interface: eth0 # optional, e.g. eth0 or enp3s0. Empty selects a connected wired interface.
+  local_ip: 192.168.20.10/24
+  peer_ip: 192.168.20.1
+  allow_multicast: false
+
 robot_state_publisher:
   ros__parameters:
     enabled: true
-    urdf_path: src/autonomy/resources/urdf/f16.urdf
+    urdf_path: src/autonomy/resources/urdf/f8.urdf
     frame_prefix: 4w4l/
 
 pointcloud_merge_node:
@@ -408,6 +415,17 @@ localization_pose_adapter_node:
     invalid_odom_recovery_threshold: 5
     reset_odom_service: /reset_odom
     publish_rate_hz: 10.0
+    dds:
+      domain_id: 1
+      lin_vel:
+        enabled: true
+        topic: lin_vel
+        type: core_dds::LinearVelocity
+        qos:
+          history: keep_last
+          depth: 1
+          reliability: best_effort
+          durability: volatile
 
 global_planner_node:
   ros__parameters:

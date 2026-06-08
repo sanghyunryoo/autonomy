@@ -1,4 +1,6 @@
 from pathlib import Path
+import tempfile
+from xml.sax.saxutils import escape
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -111,6 +113,83 @@ def _parse_bool(value, default=True):
     if normalized in ("false", "0", "no", "n", "off"):
         return False
     return bool(value)
+
+
+def _dds_network_params(data):
+    params = data.get("dds_network", {})
+    return params if isinstance(params, dict) else {}
+
+
+def _dds_network_mode(data):
+    params = _dds_network_params(data)
+    return str(params.get("mode", params.get("transport", "wireless"))).strip().lower()
+
+
+def _ip_without_prefix(value):
+    return str(value).strip().split("/", 1)[0]
+
+
+def _dds_network_env(data):
+    params = _dds_network_params(data)
+    mode = _dds_network_mode(data)
+    if mode in ("", "auto", "default", "wireless", "wifi"):
+        return None
+    if mode not in ("wired", "ethernet"):
+        raise RuntimeError("dds_network.mode must be one of: wireless, wired")
+
+    local_ip = _ip_without_prefix(params.get("local_ip", ""))
+    peer_ip = _ip_without_prefix(params.get("peer_ip", params.get("remote_ip", "")))
+    if not local_ip:
+        raise RuntimeError("dds_network.local_ip is required when mode is wired")
+    if not peer_ip:
+        raise RuntimeError("dds_network.peer_ip is required when mode is wired")
+
+    allow_multicast = _parse_bool(params.get("allow_multicast", False), default=False)
+    multicast = "true" if allow_multicast else "false"
+    multicast_recv = "preferred" if allow_multicast else "none"
+    allow_multicast_text = "true" if allow_multicast else "false"
+    xml = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface ip="{escape(local_ip)}" priority="default" multicast="{multicast}" />
+      </Interfaces>
+      <AllowMulticast>{allow_multicast_text}</AllowMulticast>
+      <MulticastRecvNetworkInterfaceAddresses>{multicast_recv}</MulticastRecvNetworkInterfaceAddresses>
+    </General>
+    <Discovery>
+      <Peers>
+        <Peer Address="{escape(peer_ip)}" />
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
+"""
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix="autonomy_cyclonedds_",
+        suffix=".xml",
+        delete=False,
+    ) as config_file:
+        config_file.write(xml)
+        config_path = Path(config_file.name)
+    return {
+        "CYCLONEDDS_URI": f"file://{config_path}",
+    }
+
+
+def _dds_network_log_message(data, env):
+    mode = _dds_network_mode(data)
+    if not env:
+        return f"DDS network mode: {mode or 'wireless'}"
+    params = _dds_network_params(data)
+    return (
+        "DDS network mode: wired "
+        f"local_ip={params.get('local_ip')} peer_ip={params.get('peer_ip', params.get('remote_ip'))} "
+        f"CYCLONEDDS_URI={env['CYCLONEDDS_URI']}"
+    )
 
 
 def _load_yaml(path):
@@ -477,7 +556,16 @@ def _managed_nodes(simulation, enable_rtabmap, enable_tracking):
     }
 
 
-def _worker_node(executable, parameters, name=None, output="log", package=PACKAGE_NAME, remappings=None, arguments=None):
+def _worker_node(
+    executable,
+    parameters,
+    name=None,
+    output="log",
+    package=PACKAGE_NAME,
+    remappings=None,
+    arguments=None,
+    additional_env=None,
+):
     return Node(
         package=package,
         executable=executable,
@@ -488,6 +576,7 @@ def _worker_node(executable, parameters, name=None, output="log", package=PACKAG
         sigterm_timeout=NODE_SIGTERM_TIMEOUT,
         sigkill_timeout=NODE_SIGKILL_TIMEOUT,
         parameters=parameters,
+        additional_env=additional_env,
     )
 
 
@@ -497,6 +586,7 @@ def _make_stack(context, *args, **kwargs):
     simulation = _parse_bool(simulation_text, default=False)
     map_dir = LaunchConfiguration("map_dir").perform(context)
     data = _load_yaml(config_file)
+    dds_env = _dds_network_env(data)
     space = _binding_space(simulation_text)
     use_sim_time = {"use_sim_time": LaunchConfiguration("simulation")}
     enable_local_stack = _adas_enabled(data, space)
@@ -508,6 +598,7 @@ def _make_stack(context, *args, **kwargs):
 
     actions = [
         LogInfo(msg="Autonomy stack starting in IDLE. Use /autonomy_manager/set_mode to change modes."),
+        LogInfo(msg=_dds_network_log_message(data, dds_env)),
     ]
 
     robot_state_publisher = _robot_state_publisher_node(data, use_sim_time)
@@ -539,6 +630,7 @@ def _make_stack(context, *args, **kwargs):
         _worker_node(
             "elevation_mapping_node",
             [_node_params(data, "elevation_mapping_node"), use_sim_time, {"operation_mode": STACK_MODE}],
+            additional_env=dds_env,
         ),
     ])
 
@@ -585,6 +677,7 @@ def _make_stack(context, *args, **kwargs):
             _worker_node(
                 "localization_pose_adapter_node",
                 [_node_params(data, "localization_pose_adapter_node"), use_sim_time],
+                additional_env=dds_env,
             ),
         ])
     elif enable_local_stack:
