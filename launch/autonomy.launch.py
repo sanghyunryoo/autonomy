@@ -224,6 +224,8 @@ def _external_launch(data, node_name, default_package, default_launch_file, para
         return []
     package = str(params.get("package", default_package))
     launch_file = str(params.get("launch_file", default_launch_file))
+    if "rviz" in launch_file.lower() and not _parse_bool(params.get("allow_rviz_launch", False), default=False):
+        return [LogInfo(msg=f"{node_name}: skipping RViz launch file: {launch_file}")]
     try:
         package_share = Path(get_package_share_directory(package))
     except Exception as exc:
@@ -251,6 +253,9 @@ def _point_lio_launch_arguments(data, simulation):
     if not isinstance(launch_arguments, dict):
         launch_arguments = {}
     launch_arguments = launch_arguments.copy()
+    launch_arguments.setdefault("rviz", "false")
+    launch_arguments.setdefault("use_rviz", "false")
+    launch_arguments.setdefault("launch_rviz", "false")
 
     sim_lidar_topic = params.get("lidar_topic_simulation")
     real_lidar_topic = params.get("lidar_topic_real")

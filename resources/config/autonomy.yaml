@@ -115,7 +115,7 @@ stream:
 
 dds_network:
   mode: wired  # wired or wireless
-  interface: eth0 # optional, e.g. eth0 or enp3s0. Empty selects a connected wired interface.
+  interface: enP8p1s0 # optional, e.g. eth0 or enp3s0. Empty selects a connected wired interface.
   local_ip: 192.168.20.10/24
   peer_ip: 192.168.20.1
   allow_multicast: false
@@ -468,7 +468,10 @@ livox_driver:
     enabled: true
     package: livox_ros_driver2
     launch_file: rviz_MID360_launch.py
-    launch_arguments: {}
+    launch_arguments:
+      rviz: false
+      use_rviz: false
+      launch_rviz: false
 
 point_lio_monitor_node:
   ros__parameters:
@@ -509,4 +512,7 @@ point_lio:
     lidar_topic_real: /livox/lidar
     lidar_topic_simulation: /robot_4w4l/livox/lidar
     launch_arguments:
+      rviz: false
+      use_rviz: false
+      launch_rviz: false
       lid_topic: /livox/lidar

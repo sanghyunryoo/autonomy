@@ -274,8 +274,6 @@ private:
     }
 
     const auto requested_mode = parseMode(request->operation_mode);
-    const bool report_controlled_mode =
-      requested_mode == AutonomyStateMsg::IDLE || requested_mode == AutonomyStateMsg::DRIVE;
 
     if (requested_mode == AutonomyStateMsg::FSD && !mapReady()) {
       response->accepted = false;
@@ -296,7 +294,7 @@ private:
     requested_segmentation_enabled_ = request->segmentation;
 
     if (!estop_active_) {
-      applyRequestedMode(report_controlled_mode);
+      applyRequestedMode();
       response->message = "Mode changed to " + modeName(mode_);
       RCLCPP_INFO(
         get_logger(),
@@ -566,7 +564,7 @@ private:
 
   bool reportControlsMode() const
   {
-    return requested_mode_ == AutonomyStateMsg::IDLE || requested_mode_ == AutonomyStateMsg::DRIVE;
+    return requested_mode_ == AutonomyStateMsg::IDLE;
   }
 
   void applyRobotReportMode()
