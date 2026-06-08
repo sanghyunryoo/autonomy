@@ -153,7 +153,7 @@ def _dds_network_env(data):
   <Domain Id="any">
     <General>
       <Interfaces>
-        <NetworkInterface ip="{escape(local_ip)}" priority="default" multicast="{multicast}" />
+        <NetworkInterface address="{escape(local_ip)}" priority="default" multicast="{multicast}" />
       </Interfaces>
       <AllowMulticast>{allow_multicast_text}</AllowMulticast>
       <MulticastRecvNetworkInterfaceAddresses>{multicast_recv}</MulticastRecvNetworkInterfaceAddresses>

@@ -78,7 +78,7 @@ camera_bindings:
 
     - role: front
       enabled: true
-      usb_port_id: "2-1.4"
+      usb_port_id: "1-2.4"
       model: d435
       camera_name: front_camera
       imu_topic: /front_camera/imu

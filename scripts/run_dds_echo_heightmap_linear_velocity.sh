@@ -6,6 +6,7 @@ repo_root="$(cd "${script_dir}/.." && pwd)"
 ros_distro="${ROS_DISTRO:-humble}"
 ros_prefix="${ROS_INSTALL_PREFIX:-/opt/ros/${ros_distro}}"
 build_dir="${AUTONOMY_DDS_ECHO_BUILD_DIR:-/tmp/autonomy_dds_echo_heightmap_linear_velocity}"
+autonomy_config="${AUTONOMY_CONFIG:-${repo_root}/resources/config/autonomy.yaml}"
 
 if [[ -f "${ros_prefix}/setup.bash" ]]; then
   # shellcheck source=/dev/null
@@ -22,6 +23,73 @@ command -v cmake >/dev/null 2>&1 || {
 command -v g++ >/dev/null 2>&1 || {
   echo "g++ was not found." >&2
   exit 1
+}
+
+configure_cyclonedds_uri() {
+  local config_file="$1"
+  [[ -f "${config_file}" ]] || return 0
+
+  local generated_uri
+  generated_uri="$(
+    /usr/bin/python3 - "${config_file}" <<'PY'
+import tempfile
+import sys
+import yaml
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+with open(sys.argv[1], "r", encoding="utf-8") as stream:
+    data = yaml.safe_load(stream) or {}
+
+dds = data.get("dds_network") or {}
+if not isinstance(dds, dict):
+    dds = {}
+
+mode = str(dds.get("mode", "wireless")).strip().lower()
+if mode not in ("wired", "ethernet"):
+    sys.exit(0)
+
+local_ip = str(dds.get("local_ip", "")).strip().split("/", 1)[0]
+peer_ip = str(dds.get("peer_ip", dds.get("remote_ip", ""))).strip().split("/", 1)[0]
+if not local_ip or not peer_ip:
+    sys.exit(0)
+
+allow_multicast = str(dds.get("allow_multicast", "false")).strip().lower() in ("true", "1", "yes", "on")
+multicast = "true" if allow_multicast else "false"
+multicast_recv = "preferred" if allow_multicast else "none"
+xml = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface address="{escape(local_ip)}" priority="default" multicast="{multicast}" />
+      </Interfaces>
+      <AllowMulticast>{multicast}</AllowMulticast>
+      <MulticastRecvNetworkInterfaceAddresses>{multicast_recv}</MulticastRecvNetworkInterfaceAddresses>
+    </General>
+    <Discovery>
+      <Peers>
+        <Peer Address="{escape(peer_ip)}" />
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
+"""
+with tempfile.NamedTemporaryFile(
+    mode="w",
+    encoding="utf-8",
+    prefix="autonomy_cyclonedds_echo_",
+    suffix=".xml",
+    delete=False,
+) as config:
+    config.write(xml)
+    print(f"file://{Path(config.name)}")
+PY
+  )"
+
+  if [[ -n "${generated_uri}" ]]; then
+    export CYCLONEDDS_URI="${generated_uri}"
+  fi
 }
 
 mkdir -p "${build_dir}"
@@ -53,8 +121,17 @@ target_link_libraries(dds_echo_heightmap_linear_velocity
 )
 EOF_CMAKE
 
-cmake -S "${build_dir}" -B "${build_dir}/build" \
-  -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-RelWithDebInfo}"
-cmake --build "${build_dir}/build" --target dds_echo_heightmap_linear_velocity -j "${CMAKE_BUILD_JOBS:-$(nproc)}"
+build_log="${build_dir}/build.log"
+if ! cmake -S "${build_dir}" -B "${build_dir}/build" \
+  -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-RelWithDebInfo}" >"${build_log}" 2>&1; then
+  cat "${build_log}" >&2
+  exit 1
+fi
+if ! cmake --build "${build_dir}/build" --target dds_echo_heightmap_linear_velocity -j "${CMAKE_BUILD_JOBS:-$(nproc)}" >>"${build_log}" 2>&1; then
+  cat "${build_log}" >&2
+  exit 1
+fi
+
+configure_cyclonedds_uri "${autonomy_config}"
 
 exec "${build_dir}/build/dds_echo_heightmap_linear_velocity" "$@"

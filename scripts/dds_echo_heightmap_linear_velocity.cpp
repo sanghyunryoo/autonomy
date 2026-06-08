@@ -5,8 +5,10 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <dds/dds.h>
 
@@ -30,6 +32,7 @@ struct Options
   std::string linear_velocity_topic{"lin_vel"};
   std::string type{"both"};
   std::size_t max_values{12};
+  double refresh_hz{4.0};
 };
 
 void printUsage(const char * argv0)
@@ -42,7 +45,8 @@ void printUsage(const char * argv0)
     << "  --type both|height_map|linear_velocity\n"
     << "  --height-map-topic NAME       HeightMap topic. Default: height_map\n"
     << "  --linear-velocity-topic NAME  LinearVelocity topic. Default: lin_vel\n"
-    << "  --max-values N                Values printed per sample. Default: 12\n";
+    << "  --max-values N                Values printed per sample. Default: 12\n"
+    << "  --refresh-hz HZ               Table refresh rate. Default: 4\n";
 }
 
 bool takeArg(int & index, const int argc, char ** argv, std::string & value)
@@ -73,6 +77,8 @@ bool parseOptions(const int argc, char ** argv, Options & options)
       options.linear_velocity_topic = value;
     } else if (arg == "--max-values" && takeArg(i, argc, argv, value)) {
       options.max_values = std::stoul(value);
+    } else if (arg == "--refresh-hz" && takeArg(i, argc, argv, value)) {
+      options.refresh_hz = std::stod(value);
     } else {
       std::cerr << "unknown option: " << arg << '\n';
       printUsage(argv[0]);
@@ -82,6 +88,10 @@ bool parseOptions(const int argc, char ** argv, Options & options)
 
   if (options.type != "both" && options.type != "height_map" && options.type != "linear_velocity") {
     std::cerr << "--type must be one of: both, height_map, linear_velocity\n";
+    return false;
+  }
+  if (options.refresh_hz <= 0.0) {
+    std::cerr << "--refresh-hz must be > 0\n";
     return false;
   }
   return true;
@@ -110,52 +120,167 @@ dds_entity_t createBestEffortReader(
   return reader;
 }
 
-void printSequence(const dds_sequence_float & data, const std::size_t max_values)
+struct TopicStats
 {
-  std::cout << "len=" << data._length << " data=[";
-  const std::size_t printed = std::min<std::size_t>(data._length, max_values);
+  std::size_t length{0};
+  std::vector<float> values;
+  std::uint64_t total{0};
+  std::uint64_t window_count{0};
+  double hz{0.0};
+  std::chrono::steady_clock::time_point last_seen{};
+  bool seen{false};
+};
+
+std::string formatValues(const TopicStats & stats, const std::size_t max_values)
+{
+  if (!stats.seen) {
+    return "-";
+  }
+  std::ostringstream out;
+  out << '[';
+  const std::size_t printed = std::min<std::size_t>(stats.values.size(), max_values);
   for (std::size_t i = 0; i < printed; ++i) {
     if (i > 0) {
-      std::cout << ", ";
+      out << ", ";
     }
-    std::cout << std::fixed << std::setprecision(4) << data._buffer[i];
+    out << std::fixed << std::setprecision(4) << stats.values[i];
   }
-  if (printed < data._length) {
-    std::cout << ", ...";
+  if (printed < stats.length) {
+    out << ", ...";
   }
-  std::cout << "]\n";
+  out << ']';
+  return out.str();
 }
 
-void takeHeightMap(const dds_entity_t reader, const std::size_t max_values)
+std::string ageText(const TopicStats & stats, const std::chrono::steady_clock::time_point now)
 {
-  void * samples[1]{nullptr};
-  samples[0] = core_dds_HeightMap__alloc();
-  dds_sample_info_t infos[1]{};
-  const int ret = dds_take(reader, samples, infos, 1, 1);
+  if (!stats.seen) {
+    return "-";
+  }
+  const auto age = std::chrono::duration<double>(now - stats.last_seen).count();
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(2) << age << 's';
+  return out.str();
+}
+
+std::string fitText(std::string text, const std::size_t width)
+{
+  if (text.size() <= width) {
+    return text;
+  }
+  if (width <= 3) {
+    return text.substr(0, width);
+  }
+  text.resize(width - 3);
+  text += "...";
+  return text;
+}
+
+void updateStats(TopicStats & stats, const dds_sequence_float & data)
+{
+  stats.length = data._length;
+  stats.values.clear();
+  if (data._buffer != nullptr && data._length > 0) {
+    stats.values.assign(data._buffer, data._buffer + data._length);
+  }
+  ++stats.total;
+  ++stats.window_count;
+  stats.last_seen = std::chrono::steady_clock::now();
+  stats.seen = true;
+}
+
+int takeHeightMap(const dds_entity_t reader, TopicStats & stats)
+{
+  constexpr std::size_t max_samples = 16;
+  void * samples[max_samples]{};
+  dds_sample_info_t infos[max_samples]{};
+  for (auto & sample : samples) {
+    sample = core_dds_HeightMap__alloc();
+  }
+  const int ret = dds_take(reader, samples, infos, max_samples, max_samples);
   if (ret < 0) {
     std::cerr << ddsError("failed to take HeightMap", ret) << '\n';
-  } else if (ret > 0 && infos[0].valid_data) {
-    const auto * sample = static_cast<const core_dds_HeightMap *>(samples[0]);
-    std::cout << "height_map ";
-    printSequence(sample->data, max_values);
+  } else {
+    for (int i = 0; i < ret; ++i) {
+      if (infos[i].valid_data) {
+        const auto * sample = static_cast<const core_dds_HeightMap *>(samples[i]);
+        updateStats(stats, sample->data);
+      }
+    }
   }
-  core_dds_HeightMap_free(samples[0], DDS_FREE_ALL);
+  for (auto * sample : samples) {
+    core_dds_HeightMap_free(sample, DDS_FREE_ALL);
+  }
+  return ret;
 }
 
-void takeLinearVelocity(const dds_entity_t reader, const std::size_t max_values)
+int takeLinearVelocity(const dds_entity_t reader, TopicStats & stats)
 {
-  void * samples[1]{nullptr};
-  samples[0] = core_dds_LinearVelocity__alloc();
-  dds_sample_info_t infos[1]{};
-  const int ret = dds_take(reader, samples, infos, 1, 1);
+  constexpr std::size_t max_samples = 16;
+  void * samples[max_samples]{};
+  dds_sample_info_t infos[max_samples]{};
+  for (auto & sample : samples) {
+    sample = core_dds_LinearVelocity__alloc();
+  }
+  const int ret = dds_take(reader, samples, infos, max_samples, max_samples);
   if (ret < 0) {
     std::cerr << ddsError("failed to take LinearVelocity", ret) << '\n';
-  } else if (ret > 0 && infos[0].valid_data) {
-    const auto * sample = static_cast<const core_dds_LinearVelocity *>(samples[0]);
-    std::cout << "linear_velocity ";
-    printSequence(sample->data, max_values);
+  } else {
+    for (int i = 0; i < ret; ++i) {
+      if (infos[i].valid_data) {
+        const auto * sample = static_cast<const core_dds_LinearVelocity *>(samples[i]);
+        updateStats(stats, sample->data);
+      }
+    }
   }
-  core_dds_LinearVelocity_free(samples[0], DDS_FREE_ALL);
+  for (auto * sample : samples) {
+    core_dds_LinearVelocity_free(sample, DDS_FREE_ALL);
+  }
+  return ret;
+}
+
+void printRow(
+  const std::string & name,
+  const std::string & topic,
+  const TopicStats & stats,
+  const std::chrono::steady_clock::time_point now,
+  const std::size_t max_values)
+{
+  const std::string values = fitText(formatValues(stats, max_values), 48);
+  std::cout
+    << "| " << std::left << std::setw(16) << name
+    << " | " << std::setw(14) << topic
+    << " | " << std::right << std::setw(8) << std::fixed << std::setprecision(2) << stats.hz
+    << " | " << std::setw(6) << (stats.seen ? std::to_string(stats.length) : "-")
+    << " | " << std::setw(8) << stats.total
+    << " | " << std::setw(7) << ageText(stats, now)
+    << " | " << std::left << std::setw(48) << values
+    << " |\n";
+}
+
+void render(
+  const Options & options,
+  const TopicStats & height_map_stats,
+  const TopicStats & linear_velocity_stats)
+{
+  const auto now = std::chrono::steady_clock::now();
+  std::cout
+    << "\033[2J\033[H"
+    << "DDS monitor  domain=" << options.domain_id
+    << "  type=" << options.type
+    << "  Ctrl-C to quit\n\n"
+    << "+------------------+----------------+----------+--------+----------+---------+--------------------------------------------------+\n"
+    << "| Topic            | DDS name       | Hz       | Len    | Total    | Age     | Latest values                                    |\n"
+    << "+------------------+----------------+----------+--------+----------+---------+--------------------------------------------------+\n";
+  if (options.type == "both" || options.type == "height_map") {
+    printRow("height_map", options.height_map_topic, height_map_stats, now, options.max_values);
+  }
+  if (options.type == "both" || options.type == "linear_velocity") {
+    printRow("linear_velocity", options.linear_velocity_topic, linear_velocity_stats, now, options.max_values);
+  }
+  std::cout
+    << "+------------------+----------------+----------+--------+----------+---------+--------------------------------------------------+\n"
+    << std::flush;
 }
 
 }  // namespace
@@ -215,19 +340,31 @@ int main(const int argc, char ** argv)
     }
   }
 
-  std::cout
-    << "Echoing DDS samples: domain=" << options.domain_id
-    << " type=" << options.type
-    << " height_map_topic=" << options.height_map_topic
-    << " linear_velocity_topic=" << options.linear_velocity_topic
-    << '\n';
+  TopicStats height_map_stats;
+  TopicStats linear_velocity_stats;
+  auto next_render = std::chrono::steady_clock::now();
+  auto next_hz_update = next_render + std::chrono::seconds(1);
+  const auto render_period = std::chrono::duration<double>(1.0 / options.refresh_hz);
 
   while (g_running) {
     if (height_map_reader > 0) {
-      takeHeightMap(height_map_reader, options.max_values);
+      takeHeightMap(height_map_reader, height_map_stats);
     }
     if (linear_velocity_reader > 0) {
-      takeLinearVelocity(linear_velocity_reader, options.max_values);
+      takeLinearVelocity(linear_velocity_reader, linear_velocity_stats);
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= next_hz_update) {
+      height_map_stats.hz = static_cast<double>(height_map_stats.window_count);
+      linear_velocity_stats.hz = static_cast<double>(linear_velocity_stats.window_count);
+      height_map_stats.window_count = 0;
+      linear_velocity_stats.window_count = 0;
+      next_hz_update += std::chrono::seconds(1);
+    }
+    if (now >= next_render) {
+      render(options, height_map_stats, linear_velocity_stats);
+      next_render += std::chrono::duration_cast<std::chrono::steady_clock::duration>(render_period);
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }

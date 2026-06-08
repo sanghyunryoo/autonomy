@@ -208,7 +208,6 @@ install(PROGRAMS
   scripts/launch.sh
   scripts/run_keyboard_filter_odom_dds_test.sh
   scripts/run_dds_echo_heightmap_linear_velocity.sh
-  scripts/run_dds_heightmap_linear_velocity_test.sh
   scripts/generate_realsense_mapping_from_urdf.py
   scripts/generate_height_filter_from_urdf.py
   scripts/realsense_usb_mapper.py
