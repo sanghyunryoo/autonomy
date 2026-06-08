@@ -1,9 +1,11 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -24,6 +26,7 @@ class ElevationMappingNode final : public rclcpp::Node
 {
 public:
   explicit ElevationMappingNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~ElevationMappingNode() override;
 
 private:
   void loadParameters();
@@ -33,6 +36,8 @@ private:
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void publishCommandFilter();
   void publishDdsHeightMap();
+  void publishElevationOutputs();
+  void configureDdsPublishThread();
   [[nodiscard]] bool processingActive() const;
   [[nodiscard]] core::msg::CommandFilter evaluateCommandFilter(
     double move_forward,
@@ -50,6 +55,7 @@ private:
   std::string output_image_topic_{"~/elevation_image"};
   std::string output_cloud_topic_{"~/elevation_points"};
   std::string output_masked_height_scan_topic_{"~/masked_height_scan"};
+  double output_publish_rate_hz_{10.0};
   std::string operation_mode_{"drive"};
   std::string command_filter_topic_{"/command_filter"};
   std::string output_local_terrain_image_topic_{"~/local_terrain_image"};
@@ -59,11 +65,13 @@ private:
   bool local_terrain_map_enabled_{false};
   bool respect_autonomy_mode_{false};
   bool has_autonomy_state_{false};
+  std::atomic_bool processing_active_cache_{false};
   int8_t autonomy_mode_{autonomy::msg::AutonomyState::IDLE};
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
   bool dds_height_map_enabled_{true};
   int dds_domain_id_{1};
   double dds_height_map_publish_rate_hz_{50.0};
+  int dds_height_map_thread_priority_{80};
   std::string dds_height_map_topic_{"height_map"};
   std::string dds_height_map_type_{"core_dds::HeightMap"};
   GridSpec grid_spec_;
@@ -84,6 +92,12 @@ private:
   mutable std::mutex latest_height_map_mutex_;
   HeightMapFrame latest_height_map_;
   bool has_latest_height_map_{false};
+  mutable std::mutex latest_dds_height_map_mutex_;
+  DdsHeightMap latest_dds_height_map_;
+  bool has_latest_dds_height_map_{false};
+  mutable std::mutex latest_elevation_grid_mutex_;
+  ElevationGrid latest_elevation_grid_;
+  bool has_latest_elevation_grid_{false};
 
   rclcpp::Subscription<autonomy::msg::AutonomyState>::SharedPtr autonomy_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
@@ -97,7 +111,9 @@ private:
   rclcpp::Publisher<core::msg::CommandFilter>::SharedPtr command_filter_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
   rclcpp::TimerBase::SharedPtr command_filter_timer_;
-  rclcpp::TimerBase::SharedPtr dds_height_map_timer_;
+  std::atomic_bool output_threads_running_{false};
+  std::thread elevation_output_thread_;
+  std::thread dds_height_map_thread_;
   std::unique_ptr<ElevationMapBackend> elevation_backend_;
   std::unique_ptr<ElevationMapBackend> local_terrain_backend_;
   std::unique_ptr<DdsHeightMapPublisher> dds_height_map_pub_;

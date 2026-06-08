@@ -158,6 +158,7 @@ elevation_mapping_node:
     output_image_topic: ~/elevation_image
     output_cloud_topic: ~/elevation_points
     output_masked_height_scan_topic: ~/masked_height_scan
+    output_publish_rate_hz: 10.0
     command_filter_topic: /command_filter
     command_filter:
       qos:
@@ -183,6 +184,7 @@ elevation_mapping_node:
         topic: height_map
         type: core_dds::HeightMap
         publish_rate_hz: 50.0
+        thread_priority: 80
         qos:
           history: keep_last
           depth: 1

@@ -2,8 +2,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <cstring>
 #include <cmath>
+#include <pthread.h>
+#include <sched.h>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -22,6 +27,17 @@ ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions & options)
     local_terrain_backend_ = std::make_unique<MinZElevationBackend>(local_terrain_grid_spec_);
   }
   createIo();
+}
+
+ElevationMappingNode::~ElevationMappingNode()
+{
+  output_threads_running_ = false;
+  if (elevation_output_thread_.joinable()) {
+    elevation_output_thread_.join();
+  }
+  if (dds_height_map_thread_.joinable()) {
+    dds_height_map_thread_.join();
+  }
 }
 
 void ElevationMappingNode::loadParameters()
@@ -51,6 +67,7 @@ void ElevationMappingNode::loadParameters()
     "local_terrain_map.enabled", local_terrain_map_config_enabled_);
   respect_autonomy_mode_ = declare_parameter<bool>(
     "respect_autonomy_mode", respect_autonomy_mode_);
+  processing_active_cache_ = !respect_autonomy_mode_;
   autonomy_status_topic_ = declare_parameter<std::string>(
     "autonomy_status_topic", autonomy_status_topic_);
 
@@ -63,6 +80,10 @@ void ElevationMappingNode::loadParameters()
     "dds.height_map.type", dds_height_map_type_);
   dds_height_map_publish_rate_hz_ = declare_parameter<double>(
     "dds.height_map.publish_rate_hz", dds_height_map_publish_rate_hz_);
+  dds_height_map_thread_priority_ = declare_parameter<int>(
+    "dds.height_map.thread_priority", dds_height_map_thread_priority_);
+  output_publish_rate_hz_ = declare_parameter<double>(
+    "output_publish_rate_hz", output_publish_rate_hz_);
 
   grid_spec_.resolution = declare_parameter<double>("grid.resolution", grid_spec_.resolution);
   grid_spec_.x_min = declare_parameter<double>("grid.x_min", grid_spec_.x_min);
@@ -207,17 +228,44 @@ void ElevationMappingNode::createIo()
         dds_height_map_pub_->error().c_str());
       dds_height_map_pub_.reset();
     } else {
-      const auto dds_height_map_period = std::chrono::duration<double>(
-        1.0 / std::max(1.0, dds_height_map_publish_rate_hz_));
-      dds_height_map_timer_ = create_wall_timer(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(dds_height_map_period),
-        [this]() { publishDdsHeightMap(); });
+      output_threads_running_ = true;
+      dds_height_map_thread_ = std::thread([this]() {
+        configureDdsPublishThread();
+        const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(1.0 / std::max(1.0, dds_height_map_publish_rate_hz_)));
+        auto next = std::chrono::steady_clock::now() + period;
+        while (output_threads_running_) {
+          std::this_thread::sleep_until(next);
+          next += period;
+          publishDdsHeightMap();
+        }
+      });
     }
   }
 
+  output_threads_running_ = true;
+  elevation_output_thread_ = std::thread([this]() {
+    const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      std::chrono::duration<double>(1.0 / std::max(1.0, output_publish_rate_hz_)));
+    auto next = std::chrono::steady_clock::now() + period;
+    while (output_threads_running_) {
+      std::this_thread::sleep_until(next);
+      next += period;
+      publishElevationOutputs();
+    }
+  });
+
   RCLCPP_INFO(get_logger(), "Subscribing merged cloud: %s", input_cloud_topic_.c_str());
-  RCLCPP_INFO(get_logger(), "Publishing elevation image: %s", output_image_topic_.c_str());
-  RCLCPP_INFO(get_logger(), "Publishing elevation points: %s", output_cloud_topic_.c_str());
+  RCLCPP_INFO(
+    get_logger(),
+    "Publishing elevation image: %s @ %.1fHz",
+    output_image_topic_.c_str(),
+    output_publish_rate_hz_);
+  RCLCPP_INFO(
+    get_logger(),
+    "Publishing elevation points: %s @ %.1fHz",
+    output_cloud_topic_.c_str(),
+    output_publish_rate_hz_);
   RCLCPP_INFO(
     get_logger(),
     "Publishing masked height scan: %s",
@@ -260,6 +308,11 @@ void ElevationMappingNode::onAutonomyState(autonomy::msg::AutonomyState::SharedP
 {
   autonomy_mode_ = msg->mode;
   has_autonomy_state_ = true;
+  processing_active_cache_ = msg->mode == autonomy::msg::AutonomyState::DRIVE ||
+    msg->mode == autonomy::msg::AutonomyState::ADAS ||
+    msg->mode == autonomy::msg::AutonomyState::FSD ||
+    msg->mode == autonomy::msg::AutonomyState::MAPPING ||
+    msg->mode == autonomy::msg::AutonomyState::TRACKING;
 }
 
 bool ElevationMappingNode::processingActive() const
@@ -280,8 +333,18 @@ bool ElevationMappingNode::processingActive() const
 void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
   if (!processingActive()) {
-    std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
-    has_latest_height_map_ = false;
+    {
+      std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
+      has_latest_height_map_ = false;
+    }
+    {
+      std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
+      has_latest_dds_height_map_ = false;
+    }
+    {
+      std::lock_guard<std::mutex> lock(latest_elevation_grid_mutex_);
+      has_latest_elevation_grid_ = false;
+    }
     return;
   }
 
@@ -292,6 +355,11 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
     latest_height_map_ = height_map;
     has_latest_height_map_ = true;
+  }
+  {
+    std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
+    latest_dds_height_map_ = toDdsHeightMap(height_map);
+    has_latest_dds_height_map_ = true;
   }
 
   masked_height_scan_pub_->publish(toRosMaskedHeightScan(height_map));
@@ -307,8 +375,11 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 
   auto debug_grid = grid;
   fillDebugGrid(debug_grid);
-  elevation_image_pub_->publish(debug_grid.toImageMsg());
-  elevation_cloud_pub_->publish(gridToPointCloud(debug_grid));
+  {
+    std::lock_guard<std::mutex> lock(latest_elevation_grid_mutex_);
+    latest_elevation_grid_ = debug_grid;
+    has_latest_elevation_grid_ = true;
+  }
 
   ++fps_frame_count_;
   const auto now = std::chrono::steady_clock::now();
@@ -328,20 +399,67 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 
 void ElevationMappingNode::publishDdsHeightMap()
 {
-  if (!dds_height_map_pub_ || !processingActive()) {
+  if (!dds_height_map_pub_ || !processing_active_cache_) {
     return;
   }
 
-  HeightMapFrame height_map;
+  DdsHeightMap height_map;
   {
-    std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
-    if (!has_latest_height_map_) {
+    std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
+    if (!has_latest_dds_height_map_) {
       return;
     }
-    height_map = latest_height_map_;
+    height_map = latest_dds_height_map_;
   }
 
-  dds_height_map_pub_->publish(toDdsHeightMap(height_map));
+  dds_height_map_pub_->publish(height_map);
+}
+
+void ElevationMappingNode::configureDdsPublishThread()
+{
+  pthread_setname_np(pthread_self(), "dds_height_map");
+  if (dds_height_map_thread_priority_ <= 0) {
+    return;
+  }
+
+  sched_param params{};
+  params.sched_priority = std::clamp(
+    dds_height_map_thread_priority_,
+    sched_get_priority_min(SCHED_FIFO),
+    sched_get_priority_max(SCHED_FIFO));
+  const int ret = pthread_setschedparam(pthread_self(), SCHED_FIFO, &params);
+  if (ret != 0) {
+    RCLCPP_WARN_ONCE(
+      get_logger(),
+      "Failed to set DDS height map thread SCHED_FIFO priority=%d: %s. "
+      "Run with realtime permissions for tighter 50Hz timing.",
+      params.sched_priority,
+      std::strerror(ret));
+  } else {
+    RCLCPP_INFO(
+      get_logger(),
+      "DDS height map thread running with SCHED_FIFO priority=%d",
+      params.sched_priority);
+  }
+}
+
+void ElevationMappingNode::publishElevationOutputs()
+{
+  if (!processing_active_cache_) {
+    return;
+  }
+
+  ElevationGrid grid;
+  {
+    std::lock_guard<std::mutex> lock(latest_elevation_grid_mutex_);
+    if (!has_latest_elevation_grid_) {
+      return;
+    }
+    grid = latest_elevation_grid_;
+  }
+
+  elevation_image_pub_->publish(grid.toImageMsg());
+  elevation_cloud_pub_->publish(gridToPointCloud(grid));
 }
 
 void ElevationMappingNode::publishCommandFilter()
