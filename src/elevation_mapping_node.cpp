@@ -61,6 +61,8 @@ void ElevationMappingNode::loadParameters()
     "dds.height_map.topic", dds_height_map_topic_);
   dds_height_map_type_ = declare_parameter<std::string>(
     "dds.height_map.type", dds_height_map_type_);
+  dds_height_map_publish_rate_hz_ = declare_parameter<double>(
+    "dds.height_map.publish_rate_hz", dds_height_map_publish_rate_hz_);
 
   grid_spec_.resolution = declare_parameter<double>("grid.resolution", grid_spec_.resolution);
   grid_spec_.x_min = declare_parameter<double>("grid.x_min", grid_spec_.x_min);
@@ -204,6 +206,12 @@ void ElevationMappingNode::createIo()
         "DDS height map writer disabled after init failure: %s",
         dds_height_map_pub_->error().c_str());
       dds_height_map_pub_.reset();
+    } else {
+      const auto dds_height_map_period = std::chrono::duration<double>(
+        1.0 / std::max(1.0, dds_height_map_publish_rate_hz_));
+      dds_height_map_timer_ = create_wall_timer(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(dds_height_map_period),
+        [this]() { publishDdsHeightMap(); });
     }
   }
 
@@ -229,10 +237,11 @@ void ElevationMappingNode::createIo()
   if (dds_height_map_pub_) {
     RCLCPP_INFO(
       get_logger(),
-      "Publishing DDS height map: domain_id=%d topic=%s type=%s",
+      "Publishing DDS height map: domain_id=%d topic=%s type=%s rate=%.1fHz",
       dds_domain_id_,
       dds_height_map_topic_.c_str(),
-      dds_height_map_type_.c_str());
+      dds_height_map_type_.c_str(),
+      dds_height_map_publish_rate_hz_);
   }
 }
 
@@ -286,9 +295,6 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   }
 
   masked_height_scan_pub_->publish(toRosMaskedHeightScan(height_map));
-  if (dds_height_map_pub_) {
-    dds_height_map_pub_->publish(toDdsHeightMap(height_map));
-  }
 
   if (local_terrain_backend_) {
     auto local_grid = local_terrain_backend_->build(*msg, msg->header);
@@ -318,6 +324,24 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     fps_window_start_ = now;
     fps_frame_count_ = 0;
   }
+}
+
+void ElevationMappingNode::publishDdsHeightMap()
+{
+  if (!dds_height_map_pub_ || !processingActive()) {
+    return;
+  }
+
+  HeightMapFrame height_map;
+  {
+    std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
+    if (!has_latest_height_map_) {
+      return;
+    }
+    height_map = latest_height_map_;
+  }
+
+  dds_height_map_pub_->publish(toDdsHeightMap(height_map));
 }
 
 void ElevationMappingNode::publishCommandFilter()

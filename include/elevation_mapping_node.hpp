@@ -32,6 +32,7 @@ private:
   void onAutonomyState(autonomy::msg::AutonomyState::SharedPtr msg);
   void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void publishCommandFilter();
+  void publishDdsHeightMap();
   [[nodiscard]] bool processingActive() const;
   [[nodiscard]] core::msg::CommandFilter evaluateCommandFilter(
     double move_forward,
@@ -62,6 +63,7 @@ private:
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
   bool dds_height_map_enabled_{true};
   int dds_domain_id_{1};
+  double dds_height_map_publish_rate_hz_{50.0};
   std::string dds_height_map_topic_{"height_map"};
   std::string dds_height_map_type_{"core_dds::HeightMap"};
   GridSpec grid_spec_;
@@ -95,6 +97,7 @@ private:
   rclcpp::Publisher<core::msg::CommandFilter>::SharedPtr command_filter_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
   rclcpp::TimerBase::SharedPtr command_filter_timer_;
+  rclcpp::TimerBase::SharedPtr dds_height_map_timer_;
   std::unique_ptr<ElevationMapBackend> elevation_backend_;
   std::unique_ptr<ElevationMapBackend> local_terrain_backend_;
   std::unique_ptr<DdsHeightMapPublisher> dds_height_map_pub_;

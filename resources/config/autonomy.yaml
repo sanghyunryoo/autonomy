@@ -182,6 +182,7 @@ elevation_mapping_node:
         enabled: true
         topic: height_map
         type: core_dds::HeightMap
+        publish_rate_hz: 50.0
         qos:
           history: keep_last
           depth: 1
