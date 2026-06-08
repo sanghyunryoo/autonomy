@@ -164,6 +164,7 @@ def _dds_network_env(data):
       <MulticastRecvNetworkInterfaceAddresses>{multicast_recv}</MulticastRecvNetworkInterfaceAddresses>
     </General>
     <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
       <Peers>
 {peer_xml}
       </Peers>

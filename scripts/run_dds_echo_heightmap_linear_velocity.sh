@@ -73,6 +73,7 @@ xml = f"""<?xml version="1.0" encoding="UTF-8" ?>
       <MulticastRecvNetworkInterfaceAddresses>{multicast_recv}</MulticastRecvNetworkInterfaceAddresses>
     </General>
     <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
       <Peers>
 {peer_xml}
       </Peers>
@@ -98,6 +99,9 @@ PY
     if [[ -s "${build_dir}/dds_config_summary" ]]; then
       export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY
       AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="$(sed -n 's/^summary=//p' "${build_dir}/dds_config_summary" | tail -n 1)"
+    fi
+    if [[ -z "${AUTONOMY_DDS_ECHO_CONFIG_SUMMARY:-}" ]]; then
+      export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="wired config=${config_file}"
     fi
   else
     export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="default DDS config=${config_file}"
