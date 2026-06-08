@@ -132,20 +132,31 @@ configure_realtime_permissions() {
     return 0
   fi
 
-  local prefix node_path
+  local prefix node_path capability_path
   prefix="$(ros2 pkg prefix autonomy)"
   node_path="${prefix}/lib/autonomy/elevation_mapping_node"
   if [[ ! -x "${node_path}" ]]; then
     echo "warning: elevation_mapping_node not found at ${node_path}; build autonomy first." >&2
     return 0
   fi
-
-  if getcap "${node_path}" | grep -q "cap_sys_nice"; then
+  if command -v readlink >/dev/null 2>&1; then
+    capability_path="$(readlink -f "${node_path}")"
+  elif command -v realpath >/dev/null 2>&1; then
+    capability_path="$(realpath "${node_path}")"
+  else
+    capability_path="${node_path}"
+  fi
+  if [[ ! -f "${capability_path}" ]]; then
+    echo "warning: elevation_mapping_node capability target is not a regular file: ${capability_path}" >&2
     return 0
   fi
 
-  echo "Configuring realtime permission for DDS height map thread: ${node_path}"
-  sudo setcap cap_sys_nice+ep "${node_path}"
+  if getcap "${capability_path}" | grep -q "cap_sys_nice"; then
+    return 0
+  fi
+
+  echo "Configuring realtime permission for DDS height map thread: ${capability_path}"
+  sudo setcap cap_sys_nice+ep "${capability_path}"
 }
 
 interface_has_ip() {
