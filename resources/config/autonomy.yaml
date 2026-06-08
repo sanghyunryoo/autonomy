@@ -272,7 +272,7 @@ elevation_mapping_node:
 
 autonomy_manager:
   ros__parameters:
-    startup_mode: IDLE
+    startup_mode: DRIVE
     pose_topic: /rtabmap/odom
     robot_report_topic: /robot_report
     map_dir: src/autonomy/resources/map

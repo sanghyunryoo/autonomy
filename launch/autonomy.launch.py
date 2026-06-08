@@ -597,7 +597,7 @@ def _make_stack(context, *args, **kwargs):
     enable_tracking_follower = enable_ai_detection and _node_enabled(data, "tracking_follower_node")
 
     actions = [
-        LogInfo(msg="Autonomy stack starting in IDLE. Use /autonomy_manager/set_mode to change modes."),
+        LogInfo(msg="Autonomy stack starting in DRIVE. Use /autonomy_manager/set_mode to change modes."),
         LogInfo(msg=_dds_network_log_message(data, dds_env)),
     ]
 
@@ -730,7 +730,7 @@ def _make_stack(context, *args, **kwargs):
             [
                 _node_params(data, "autonomy_manager"),
                 {
-                    "startup_mode": "IDLE",
+                    "startup_mode": "DRIVE",
                     "speed_limit": 0.0,
                     "enable_ai": False,
                     "segmentation": False,

@@ -144,7 +144,7 @@ public:
   AutonomyManagerNode()
   : Node("autonomy_manager")
   {
-    declare_parameter<std::string>("startup_mode", "IDLE");
+    declare_parameter<std::string>("startup_mode", "DRIVE");
     declare_parameter<std::string>("pose_topic", "/rtabmap/odom");
     declare_parameter<std::string>("robot_report_topic", "/robot_report");
     declare_parameter<std::string>("map_dir", "");
@@ -655,8 +655,8 @@ private:
     return false;
   }
 
-  std::int8_t mode_{AutonomyStateMsg::IDLE};
-  std::int8_t requested_mode_{AutonomyStateMsg::IDLE};
+  std::int8_t mode_{AutonomyStateMsg::DRIVE};
+  std::int8_t requested_mode_{AutonomyStateMsg::DRIVE};
   bool estop_active_{false};
   bool error_active_{false};
   bool ai_enabled_{false};

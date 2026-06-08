@@ -14,13 +14,8 @@ if [[ -f "${ros_prefix}/setup.bash" ]]; then
   set -u
 fi
 
-command -v idlc >/dev/null 2>&1 || {
-  echo "idlc was not found. Source ROS 2 or set ROS_INSTALL_PREFIX." >&2
-  exit 1
-}
-
-command -v gcc >/dev/null 2>&1 || {
-  echo "gcc was not found." >&2
+command -v cmake >/dev/null 2>&1 || {
+  echo "cmake was not found." >&2
   exit 1
 }
 
@@ -29,39 +24,37 @@ command -v g++ >/dev/null 2>&1 || {
   exit 1
 }
 
-pkg_config_path="${ros_prefix}/lib/x86_64-linux-gnu/pkgconfig:${ros_prefix}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-export PKG_CONFIG_PATH="${pkg_config_path}"
-
-if ! pkg-config --exists CycloneDDS; then
-  echo "CycloneDDS.pc was not found under ${ros_prefix}." >&2
-  exit 1
-fi
-
 mkdir -p "${build_dir}"
 
-idlc -o "${build_dir}" "${repo_root}/resources/idl/HeightMap.idl"
-idlc -o "${build_dir}" "${repo_root}/resources/idl/LinearVelocity.idl"
+cat > "${build_dir}/CMakeLists.txt" <<EOF_CMAKE
+cmake_minimum_required(VERSION 3.16)
+project(autonomy_dds_echo_heightmap_linear_velocity LANGUAGES C CXX)
 
-gcc -std=c11 -O2 -Wall -Wextra \
-  -c "${build_dir}/HeightMap.c" \
-  -I"${build_dir}" \
-  $(pkg-config --cflags CycloneDDS) \
-  -o "${build_dir}/HeightMap.o"
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-gcc -std=c11 -O2 -Wall -Wextra \
-  -c "${build_dir}/LinearVelocity.c" \
-  -I"${build_dir}" \
-  $(pkg-config --cflags CycloneDDS) \
-  -o "${build_dir}/LinearVelocity.o"
+find_package(CycloneDDS REQUIRED CONFIG)
 
-g++ -std=c++17 -O2 -Wall -Wextra -pedantic \
-  "${script_dir}/dds_echo_heightmap_linear_velocity.cpp" \
-  "${build_dir}/HeightMap.o" \
-  "${build_dir}/LinearVelocity.o" \
-  -I"${build_dir}" \
-  $(pkg-config --cflags --libs CycloneDDS) \
-  -Wl,-rpath,"${ros_prefix}/lib/x86_64-linux-gnu" \
-  -Wl,-rpath,"${ros_prefix}/lib" \
-  -o "${build_dir}/dds_echo_heightmap_linear_velocity"
+idlc_generate(
+  TARGET echo_dds_types
+  FILES
+    "${repo_root}/resources/idl/HeightMap.idl"
+    "${repo_root}/resources/idl/LinearVelocity.idl"
+)
 
-exec "${build_dir}/dds_echo_heightmap_linear_velocity" "$@"
+add_executable(dds_echo_heightmap_linear_velocity
+  "${script_dir}/dds_echo_heightmap_linear_velocity.cpp"
+)
+
+target_link_libraries(dds_echo_heightmap_linear_velocity
+  echo_dds_types
+  CycloneDDS::ddsc
+)
+EOF_CMAKE
+
+cmake -S "${build_dir}" -B "${build_dir}/build" \
+  -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-RelWithDebInfo}"
+cmake --build "${build_dir}/build" --target dds_echo_heightmap_linear_velocity -j "${CMAKE_BUILD_JOBS:-$(nproc)}"
+
+exec "${build_dir}/build/dds_echo_heightmap_linear_velocity" "$@"

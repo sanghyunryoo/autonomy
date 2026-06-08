@@ -65,6 +65,11 @@ resolve_autonomy_config() {
     return
   fi
 
+  if [[ -f "${package_dir}/resources/config/autonomy.yaml" ]]; then
+    printf '%s\n' "${package_dir}/resources/config/autonomy.yaml"
+    return
+  fi
+
   local prefix
   prefix="$(ros2 pkg prefix autonomy)"
   printf '%s\n' "${prefix}/share/autonomy/resources/config/autonomy.yaml"
@@ -197,6 +202,8 @@ configure_wired_dds_network() {
 
 configure_wired_dds_network
 
+resolved_autonomy_config="$(resolve_autonomy_config)"
+
 has_simulation_arg=false
 for arg in "$@"; do
   if [[ "${arg}" == simulation:=* ]]; then
@@ -208,6 +215,15 @@ done
 launch_args=("$@")
 if [[ "${has_simulation_arg}" == false ]]; then
   launch_args=("simulation:=false" "${launch_args[@]}")
+fi
+
+if [[ -z "${autonomy_config_arg}" ]]; then
+  launch_args=("autonomy_config:=${resolved_autonomy_config}" "${launch_args[@]}")
+fi
+
+source_launch_file="${package_dir}/launch/autonomy.launch.py"
+if [[ -f "${source_launch_file}" ]]; then
+  exec ros2 launch "${source_launch_file}" "${launch_args[@]}"
 fi
 
 exec ros2 launch autonomy autonomy.launch.py "${launch_args[@]}"
