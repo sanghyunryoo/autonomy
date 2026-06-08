@@ -411,7 +411,7 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 
 void ElevationMappingNode::publishDdsHeightMap()
 {
-  if (!dds_height_map_pub_ || !processing_active_cache_) {
+  if (!dds_height_map_pub_) {
     return;
   }
   ++dds_publish_attempt_count_;
