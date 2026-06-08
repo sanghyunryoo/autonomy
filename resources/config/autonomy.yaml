@@ -60,7 +60,7 @@ camera_bindings:
 
   real:
     - role: adas
-      enabled: true
+      enabled: false
       usb_port_id: ""
       model: d435
       camera_name: adas_camera
@@ -78,7 +78,7 @@ camera_bindings:
 
     - role: front
       enabled: true
-      usb_port_id: "2-1.3"
+      usb_port_id: "2-1.4"
       model: d435
       camera_name: front_camera
       imu_topic: /front_camera/imu
@@ -90,7 +90,7 @@ camera_bindings:
       optical_frame: F_camera_link
 
     - role: rear
-      enabled: true
+      enabled: false
       usb_port_id: "2-1.1"
       model: d435
       camera_name: rear_camera
