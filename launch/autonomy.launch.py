@@ -148,6 +148,11 @@ def _dds_network_env(data):
     multicast = "true" if allow_multicast else "false"
     multicast_recv = "preferred" if allow_multicast else "none"
     allow_multicast_text = "true" if allow_multicast else "false"
+    peers = []
+    for address in (peer_ip, local_ip):
+        if address and address not in peers:
+            peers.append(address)
+    peer_xml = "\n".join(f'        <Peer Address="{escape(address)}" />' for address in peers)
     xml = f"""<?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain Id="any">
@@ -160,7 +165,7 @@ def _dds_network_env(data):
     </General>
     <Discovery>
       <Peers>
-        <Peer Address="{escape(peer_ip)}" />
+{peer_xml}
       </Peers>
     </Discovery>
   </Domain>
