@@ -89,6 +89,13 @@ private:
   double debug_fill_z_{0.0};
   std::chrono::steady_clock::time_point fps_window_start_;
   std::size_t fps_frame_count_{0};
+  std::chrono::steady_clock::time_point dds_stats_window_start_;
+  std::uint64_t dds_publish_attempt_count_{0};
+  std::uint64_t dds_publish_success_count_{0};
+  std::uint64_t dds_publish_empty_count_{0};
+  std::uint64_t dds_publish_late_count_{0};
+  double dds_publish_max_write_ms_{0.0};
+  double dds_publish_max_late_ms_{0.0};
   mutable std::mutex latest_height_map_mutex_;
   HeightMapFrame latest_height_map_;
   bool has_latest_height_map_{false};

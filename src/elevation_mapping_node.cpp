@@ -174,6 +174,7 @@ void ElevationMappingNode::loadParameters()
 void ElevationMappingNode::createIo()
 {
   fps_window_start_ = std::chrono::steady_clock::now();
+  dds_stats_window_start_ = fps_window_start_;
 
   if (respect_autonomy_mode_) {
     autonomy_sub_ = create_subscription<autonomy::msg::AutonomyState>(
@@ -236,6 +237,12 @@ void ElevationMappingNode::createIo()
         auto next = std::chrono::steady_clock::now() + period;
         while (output_threads_running_) {
           std::this_thread::sleep_until(next);
+          const auto wake = std::chrono::steady_clock::now();
+          const auto late = std::chrono::duration<double, std::milli>(wake - next).count();
+          if (late > 1.0) {
+            ++dds_publish_late_count_;
+            dds_publish_max_late_ms_ = std::max(dds_publish_max_late_ms_, late);
+          }
           publishDdsHeightMap();
           next += period;
           const auto now = std::chrono::steady_clock::now();
@@ -410,17 +417,45 @@ void ElevationMappingNode::publishDdsHeightMap()
   if (!dds_height_map_pub_ || !processing_active_cache_) {
     return;
   }
+  ++dds_publish_attempt_count_;
 
   DdsHeightMap height_map;
   {
     std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
     if (!has_latest_dds_height_map_) {
+      ++dds_publish_empty_count_;
       return;
     }
     height_map = latest_dds_height_map_;
   }
 
+  const auto write_start = std::chrono::steady_clock::now();
   dds_height_map_pub_->publish(height_map);
+  const auto write_ms =
+    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - write_start).count();
+  dds_publish_max_write_ms_ = std::max(dds_publish_max_write_ms_, write_ms);
+  ++dds_publish_success_count_;
+
+  const auto now = std::chrono::steady_clock::now();
+  const std::chrono::duration<double> elapsed = now - dds_stats_window_start_;
+  if (elapsed.count() >= 1.0) {
+    RCLCPP_INFO(
+      get_logger(),
+      "DDS height_map publish stats: attempts=%.1fHz writes=%.1fHz empty=%lu late=%lu max_late=%.3fms max_write=%.3fms",
+      static_cast<double>(dds_publish_attempt_count_) / elapsed.count(),
+      static_cast<double>(dds_publish_success_count_) / elapsed.count(),
+      static_cast<unsigned long>(dds_publish_empty_count_),
+      static_cast<unsigned long>(dds_publish_late_count_),
+      dds_publish_max_late_ms_,
+      dds_publish_max_write_ms_);
+    dds_stats_window_start_ = now;
+    dds_publish_attempt_count_ = 0;
+    dds_publish_success_count_ = 0;
+    dds_publish_empty_count_ = 0;
+    dds_publish_late_count_ = 0;
+    dds_publish_max_write_ms_ = 0.0;
+    dds_publish_max_late_ms_ = 0.0;
+  }
 }
 
 void ElevationMappingNode::configureDdsPublishThread()
