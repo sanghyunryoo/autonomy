@@ -38,6 +38,7 @@ private:
   void publishDdsHeightMap();
   void publishElevationOutputs();
   void configureDdsPublishThread();
+  void initializeDdsHeightMapCache();
   [[nodiscard]] bool processingActive() const;
   [[nodiscard]] core::msg::CommandFilter evaluateCommandFilter(
     double move_forward,

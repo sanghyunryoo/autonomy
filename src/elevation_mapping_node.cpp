@@ -229,6 +229,7 @@ void ElevationMappingNode::createIo()
         dds_height_map_pub_->error().c_str());
       dds_height_map_pub_.reset();
     } else {
+      initializeDdsHeightMapCache();
       output_threads_running_ = true;
       dds_height_map_thread_ = std::thread([this]() {
         configureDdsPublishThread();
@@ -351,10 +352,6 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     {
       std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
       has_latest_height_map_ = false;
-    }
-    {
-      std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
-      has_latest_dds_height_map_ = false;
     }
     {
       std::lock_guard<std::mutex> lock(latest_elevation_grid_mutex_);
@@ -484,6 +481,17 @@ void ElevationMappingNode::configureDdsPublishThread()
       "DDS height map thread running with SCHED_FIFO priority=%d",
       params.sched_priority);
   }
+}
+
+void ElevationMappingNode::initializeDdsHeightMapCache()
+{
+  DdsHeightMap initial_map;
+  const auto count = static_cast<std::size_t>(grid_spec_.width()) * grid_spec_.height();
+  initial_map.data.assign(count, static_cast<float>(base_height_ - height_scan_offset_));
+
+  std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
+  latest_dds_height_map_ = std::move(initial_map);
+  has_latest_dds_height_map_ = true;
 }
 
 void ElevationMappingNode::publishElevationOutputs()
