@@ -151,7 +151,7 @@ public:
     declare_parameter<double>("speed_limit", 0.0);
     declare_parameter<bool>("enable_ai", false);
     declare_parameter<bool>("segmentation", false);
-    declare_parameter<double>("heartbeat_timeout_sec", 1.0);
+    declare_parameter<double>("heartbeat_timeout_sec", 3.0);
     declare_parameter<double>("publish_rate_hz", 10.0);
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.idle",
@@ -388,7 +388,8 @@ private:
     std::vector<std::string> inactive;
     std::vector<std::string> degraded;
     classifyNodes(active, inactive, degraded);
-    const bool internal_error_active = error_active_ || !degraded.empty() || comm_fault_;
+    const bool internal_error_active = error_active_ || comm_fault_;
+    const bool degraded_active = !degraded.empty();
     const auto reported_mode = internal_error_active ? AutonomyStateMsg::ERROR : mode_;
 
     AutonomyStateMsg msg;
@@ -413,7 +414,7 @@ private:
       msg.pose = latest_pose_;
       msg.velocity = latest_velocity_;
     }
-    msg.status = internal_error_active ? "error" : "ok";
+    msg.status = internal_error_active ? "error" : (degraded_active ? "degraded" : "ok");
     msg.active_nodes = active;
     msg.inactive_nodes = inactive;
     msg.degraded_nodes = degraded;
