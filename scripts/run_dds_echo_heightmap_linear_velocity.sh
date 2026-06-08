@@ -108,6 +108,50 @@ PY
   fi
 }
 
+configure_height_map_shape() {
+  local config_file="$1"
+  [[ -f "${config_file}" ]] || return 0
+
+  local shape
+  shape="$(
+    /usr/bin/python3 - "${config_file}" <<'PY'
+import math
+import sys
+import yaml
+
+with open(sys.argv[1], "r", encoding="utf-8") as stream:
+    data = yaml.safe_load(stream) or {}
+
+params = (((data.get("elevation_mapping_node") or {}).get("ros__parameters")) or {})
+grid = params.get("grid") or {}
+try:
+    resolution = float(grid.get("resolution", 0.0))
+    x_min = float(grid.get("x_min", 0.0))
+    x_max = float(grid.get("x_max", 0.0))
+    y_min = float(grid.get("y_min", 0.0))
+    y_max = float(grid.get("y_max", 0.0))
+except (TypeError, ValueError):
+    sys.exit(0)
+
+if resolution <= 0.0 or x_max <= x_min or y_max <= y_min:
+    sys.exit(0)
+
+width = int(round((x_max - x_min) / resolution))
+height = int(round((y_max - y_min) / resolution))
+if width <= 0 or height <= 0:
+    sys.exit(0)
+
+print(f"{width} {height}")
+PY
+  )"
+
+  if [[ -n "${shape}" ]]; then
+    read -r AUTONOMY_DDS_ECHO_HEIGHT_MAP_WIDTH AUTONOMY_DDS_ECHO_HEIGHT_MAP_HEIGHT <<<"${shape}"
+    export AUTONOMY_DDS_ECHO_HEIGHT_MAP_WIDTH
+    export AUTONOMY_DDS_ECHO_HEIGHT_MAP_HEIGHT
+  fi
+}
+
 mkdir -p "${build_dir}"
 
 cat > "${build_dir}/CMakeLists.txt" <<EOF_CMAKE
@@ -149,5 +193,6 @@ if ! cmake --build "${build_dir}/build" --target dds_echo_heightmap_linear_veloc
 fi
 
 configure_cyclonedds_uri "${autonomy_config}"
+configure_height_map_shape "${autonomy_config}"
 
 exec "${build_dir}/build/dds_echo_heightmap_linear_velocity" "$@"

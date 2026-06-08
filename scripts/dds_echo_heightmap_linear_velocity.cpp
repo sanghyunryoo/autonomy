@@ -4,11 +4,13 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstdint>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <dds/dds.h>
@@ -33,6 +35,8 @@ struct Options
   std::string linear_velocity_topic{"lin_vel"};
   std::string type{"both"};
   std::size_t max_values{12};
+  std::size_t height_map_width{12};
+  std::size_t height_map_height{12};
   double refresh_hz{4.0};
 };
 
@@ -45,9 +49,25 @@ void printUsage(const char * argv0)
     << "  --domain-id N                 DDS domain id. Default: 1\n"
     << "  --type both|height_map|linear_velocity\n"
     << "  --height-map-topic NAME       HeightMap topic. Default: height_map\n"
+    << "  --height-map-width N          HeightMap grid width. Default: 12\n"
+    << "  --height-map-height N         HeightMap grid height. Default: 12\n"
     << "  --linear-velocity-topic NAME  LinearVelocity topic. Default: lin_vel\n"
     << "  --max-values N                Values printed per sample. Default: 12\n"
     << "  --refresh-hz HZ               Table refresh rate. Default: 4\n";
+}
+
+std::size_t envSizeT(const char * name, const std::size_t fallback)
+{
+  const char * value = std::getenv(name);
+  if (value == nullptr || value[0] == '\0') {
+    return fallback;
+  }
+  try {
+    const auto parsed = std::stoul(value);
+    return parsed > 0 ? parsed : fallback;
+  } catch (...) {
+    return fallback;
+  }
 }
 
 bool takeArg(int & index, const int argc, char ** argv, std::string & value)
@@ -62,6 +82,9 @@ bool takeArg(int & index, const int argc, char ** argv, std::string & value)
 
 bool parseOptions(const int argc, char ** argv, Options & options)
 {
+  options.height_map_width = envSizeT("AUTONOMY_DDS_ECHO_HEIGHT_MAP_WIDTH", options.height_map_width);
+  options.height_map_height = envSizeT("AUTONOMY_DDS_ECHO_HEIGHT_MAP_HEIGHT", options.height_map_height);
+
   for (int i = 1; i < argc; ++i) {
     const std::string arg{argv[i]};
     std::string value;
@@ -74,6 +97,10 @@ bool parseOptions(const int argc, char ** argv, Options & options)
       options.type = value;
     } else if (arg == "--height-map-topic" && takeArg(i, argc, argv, value)) {
       options.height_map_topic = value;
+    } else if (arg == "--height-map-width" && takeArg(i, argc, argv, value)) {
+      options.height_map_width = std::stoul(value);
+    } else if (arg == "--height-map-height" && takeArg(i, argc, argv, value)) {
+      options.height_map_height = std::stoul(value);
     } else if (arg == "--linear-velocity-topic" && takeArg(i, argc, argv, value)) {
       options.linear_velocity_topic = value;
     } else if (arg == "--max-values" && takeArg(i, argc, argv, value)) {
@@ -93,6 +120,10 @@ bool parseOptions(const int argc, char ** argv, Options & options)
   }
   if (options.refresh_hz <= 0.0) {
     std::cerr << "--refresh-hz must be > 0\n";
+    return false;
+  }
+  if (options.height_map_width == 0 || options.height_map_height == 0) {
+    std::cerr << "--height-map-width and --height-map-height must be > 0\n";
     return false;
   }
   return true;
@@ -259,6 +290,63 @@ void printRow(
     << " |\n";
 }
 
+std::pair<std::size_t, std::size_t> heightMapShape(const Options & options, const TopicStats & stats)
+{
+  if (options.height_map_width * options.height_map_height == stats.length) {
+    return {options.height_map_width, options.height_map_height};
+  }
+
+  const auto side = static_cast<std::size_t>(std::llround(std::sqrt(static_cast<double>(stats.length))));
+  if (side > 0 && side * side == stats.length) {
+    return {side, side};
+  }
+
+  return {stats.length, 1};
+}
+
+void printHeightMapGrid(const Options & options, const TopicStats & stats)
+{
+  if (!stats.seen) {
+    std::cout << "\nheight_map grid: waiting for data\n";
+    return;
+  }
+  if (stats.values.empty()) {
+    std::cout << "\nheight_map grid: empty sample\n";
+    return;
+  }
+
+  const auto [width, height] = heightMapShape(options, stats);
+  const bool shape_matches = width * height == stats.length;
+  std::cout
+    << "\nheight_map grid"
+    << "  shape=" << width << "x" << height
+    << "  len=" << stats.length
+    << "  row=y col=x";
+  if (!shape_matches) {
+    std::cout << "  note=length_does_not_match_config";
+  }
+  std::cout << '\n';
+
+  std::cout << "        ";
+  for (std::size_t col = 0; col < width; ++col) {
+    std::cout << " c" << std::left << std::setw(8) << col;
+  }
+  std::cout << '\n';
+
+  for (std::size_t row = 0; row < height; ++row) {
+    std::cout << "r" << std::left << std::setw(6) << row;
+    for (std::size_t col = 0; col < width; ++col) {
+      const auto index = row * width + col;
+      if (index < stats.values.size()) {
+        std::cout << ' ' << std::right << std::setw(8) << std::fixed << std::setprecision(4) << stats.values[index];
+      } else {
+        std::cout << ' ' << std::right << std::setw(8) << "-";
+      }
+    }
+    std::cout << '\n';
+  }
+}
+
 void render(
   const Options & options,
   const TopicStats & height_map_stats,
@@ -292,6 +380,10 @@ void render(
   std::cout
     << "+------------------+----------------+----------+--------+----------+---------+--------------------------------------------------+\n"
     << std::flush;
+  if (options.type == "both" || options.type == "height_map") {
+    printHeightMapGrid(options, height_map_stats);
+  }
+  std::cout << std::flush;
 }
 
 }  // namespace
