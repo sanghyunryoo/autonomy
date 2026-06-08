@@ -641,6 +641,7 @@ def _make_stack(context, *args, **kwargs):
         _worker_node(
             "elevation_mapping_node",
             [_node_params(data, "elevation_mapping_node"), use_sim_time, {"operation_mode": STACK_MODE}],
+            output="screen",
             additional_env=dds_env,
         ),
     ])
