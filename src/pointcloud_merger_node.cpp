@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -302,18 +303,21 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
   PointCloudMsg & output,
   const rclcpp::Time & now)
 {
-  if (depth.encoding != sensor_msgs::image_encodings::TYPE_32FC1) {
+  const bool depth_is_32fc1 = depth.encoding == sensor_msgs::image_encodings::TYPE_32FC1;
+  const bool depth_is_16uc1 = depth.encoding == sensor_msgs::image_encodings::TYPE_16UC1;
+  if (!depth_is_32fc1 && !depth_is_16uc1) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
       *get_clock(),
       2000,
-      "Unsupported depth encoding camera='%s': %s (expected 32FC1 meters)",
+      "Unsupported depth encoding camera='%s': %s (expected 32FC1 meters or 16UC1 millimeters)",
       camera.name.c_str(),
       depth.encoding.c_str());
     return false;
   }
 
-  if (depth.step < depth.width * sizeof(float)) {
+  const std::size_t depth_value_size = depth_is_32fc1 ? sizeof(float) : sizeof(std::uint16_t);
+  if (depth.step < depth.width * depth_value_size) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
       *get_clock(),
@@ -395,8 +399,11 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
 
   std::size_t written = 0;
 
-  const auto * depth_data = reinterpret_cast<const float *>(depth.data.data());
-  const auto row_step = static_cast<std::size_t>(depth.step / sizeof(float));
+  const auto * depth_float_data = depth_is_32fc1 ?
+    reinterpret_cast<const float *>(depth.data.data()) : nullptr;
+  const auto * depth_uint16_data = depth_is_16uc1 ?
+    reinterpret_cast<const std::uint16_t *>(depth.data.data()) : nullptr;
+  const auto row_step = static_cast<std::size_t>(depth.step / depth_value_size);
 
   const double fx = camera_info.k[0];
   const double fy = camera_info.k[4];
@@ -406,7 +413,9 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
   for (std::uint32_t v = 0; v < depth.height; v += stride) {
     for (std::uint32_t u = 0; u < depth.width; u += stride) {
       const auto index = static_cast<std::size_t>(v) * row_step + u;
-      const float z = depth_data[index];
+      const float z = depth_is_32fc1 ?
+        depth_float_data[index] :
+        static_cast<float>(depth_uint16_data[index]) * 0.001F;
 
       if (!std::isfinite(z) || z < min_range_ || z > max_range_) {
         continue;

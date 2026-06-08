@@ -130,7 +130,7 @@ pointcloud_merge_node:
   ros__parameters:
     target_frame: 4w4l/base_link
     frame_prefix: 4w4l/
-    publish_rate_hz: 20.0
+    publish_rate_hz: 50.0
     max_cloud_age_sec: 0.0
     respect_autonomy_mode: true
     autonomy_status_topic: /autonomy_manager/status

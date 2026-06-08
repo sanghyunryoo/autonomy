@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
@@ -264,11 +265,21 @@ void render(
   const TopicStats & linear_velocity_stats)
 {
   const auto now = std::chrono::steady_clock::now();
+  const char * dds_summary = std::getenv("AUTONOMY_DDS_ECHO_CONFIG_SUMMARY");
+  const char * cyclonedds_uri = std::getenv("CYCLONEDDS_URI");
   std::cout
     << "\033[2J\033[H"
     << "DDS monitor  domain=" << options.domain_id
     << "  type=" << options.type
-    << "  Ctrl-C to quit\n\n"
+    << "  Ctrl-C to quit\n";
+  if (dds_summary != nullptr && dds_summary[0] != '\0') {
+    std::cout << "DDS config   " << dds_summary << '\n';
+  }
+  if (cyclonedds_uri != nullptr && cyclonedds_uri[0] != '\0') {
+    std::cout << "CYCLONEDDS_URI=" << cyclonedds_uri << '\n';
+  }
+  std::cout
+    << '\n'
     << "+------------------+----------------+----------+--------+----------+---------+--------------------------------------------------+\n"
     << "| Topic            | DDS name       | Hz       | Len    | Total    | Age     | Latest values                                    |\n"
     << "+------------------+----------------+----------+--------+----------+---------+--------------------------------------------------+\n";

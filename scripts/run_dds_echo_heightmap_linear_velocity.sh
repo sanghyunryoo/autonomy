@@ -88,12 +88,19 @@ with tempfile.NamedTemporaryFile(
     delete=False,
 ) as config:
     config.write(xml)
+    print(f"summary=wired local_ip={local_ip} peer_ip={peer_ip} self_peer={local_ip} config={sys.argv[1]}", file=sys.stderr)
     print(f"file://{Path(config.name)}")
 PY
-  )"
+  )" 2>"${build_dir}/dds_config_summary"
 
   if [[ -n "${generated_uri}" ]]; then
     export CYCLONEDDS_URI="${generated_uri}"
+    if [[ -s "${build_dir}/dds_config_summary" ]]; then
+      export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY
+      AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="$(sed -n 's/^summary=//p' "${build_dir}/dds_config_summary" | tail -n 1)"
+    fi
+  else
+    export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="default DDS config=${config_file}"
   fi
 }
 
