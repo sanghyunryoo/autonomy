@@ -98,7 +98,7 @@ void DdsHeightMapPublisher::initialize()
     return;
   }
   dds_qset_reliability(writer_qos, DDS_RELIABILITY_BEST_EFFORT, DDS_SECS(0));
-  dds_qset_history(writer_qos, DDS_HISTORY_KEEP_LAST, 1);
+  dds_qset_history(writer_qos, DDS_HISTORY_KEEP_LAST, 128);
 
   writer_ = dds_create_writer(participant_, topic_, writer_qos, nullptr);
   dds_delete_qos(writer_qos);

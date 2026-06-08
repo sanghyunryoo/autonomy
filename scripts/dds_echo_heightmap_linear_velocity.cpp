@@ -114,7 +114,7 @@ dds_entity_t createBestEffortReader(
   }
 
   dds_qset_reliability(qos, DDS_RELIABILITY_BEST_EFFORT, DDS_SECS(0));
-  dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, 128);
+  dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, 512);
 
   const dds_entity_t reader = dds_create_reader(participant, topic, qos, nullptr);
   dds_delete_qos(qos);
@@ -192,7 +192,7 @@ void updateStats(TopicStats & stats, const dds_sequence_float & data)
 
 int takeHeightMap(const dds_entity_t reader, TopicStats & stats)
 {
-  constexpr std::size_t max_samples = 128;
+  constexpr std::size_t max_samples = 512;
   void * samples[max_samples]{};
   dds_sample_info_t infos[max_samples]{};
   for (auto & sample : samples) {
@@ -217,7 +217,7 @@ int takeHeightMap(const dds_entity_t reader, TopicStats & stats)
 
 int takeLinearVelocity(const dds_entity_t reader, TopicStats & stats)
 {
-  constexpr std::size_t max_samples = 128;
+  constexpr std::size_t max_samples = 512;
   void * samples[max_samples]{};
   dds_sample_info_t infos[max_samples]{};
   for (auto & sample : samples) {

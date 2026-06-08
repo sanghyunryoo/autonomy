@@ -100,6 +100,54 @@ print(value("peer_ip", value("remote_ip")))
 PY
 }
 
+read_dds_thread_priority() {
+  local config_file="$1"
+  /usr/bin/python3 - "${config_file}" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], "r", encoding="utf-8") as stream:
+    data = yaml.safe_load(stream) or {}
+
+params = data.get("elevation_mapping_node", {}).get("ros__parameters", {})
+dds = params.get("dds") or {}
+height_map = dds.get("height_map") or {}
+print(int(height_map.get("thread_priority", 0) or 0))
+PY
+}
+
+configure_realtime_permissions() {
+  local config_file="$1"
+  [[ -f "${config_file}" ]] || return 0
+
+  local priority
+  priority="$(read_dds_thread_priority "${config_file}")"
+  if [[ "${priority}" -le 0 ]]; then
+    return 0
+  fi
+
+  if ! command -v setcap >/dev/null 2>&1 || ! command -v getcap >/dev/null 2>&1; then
+    echo "warning: setcap/getcap not found; DDS realtime priority may fail." >&2
+    return 0
+  fi
+
+  local prefix node_path
+  prefix="$(ros2 pkg prefix autonomy)"
+  node_path="${prefix}/lib/autonomy/elevation_mapping_node"
+  if [[ ! -x "${node_path}" ]]; then
+    echo "warning: elevation_mapping_node not found at ${node_path}; build autonomy first." >&2
+    return 0
+  fi
+
+  if getcap "${node_path}" | grep -q "cap_sys_nice"; then
+    return 0
+  fi
+
+  echo "Configuring realtime permission for DDS height map thread: ${node_path}"
+  sudo setcap cap_sys_nice+ep "${node_path}"
+}
+
 interface_has_ip() {
   local iface="$1"
   local local_host="$2"
@@ -203,6 +251,7 @@ configure_wired_dds_network() {
 configure_wired_dds_network
 
 resolved_autonomy_config="$(resolve_autonomy_config)"
+configure_realtime_permissions "${resolved_autonomy_config}"
 
 has_simulation_arg=false
 for arg in "$@"; do
