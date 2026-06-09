@@ -46,8 +46,12 @@ if not isinstance(dds, dict):
     dds = {}
 
 mode = str(dds.get("mode", "wireless")).strip().lower()
-if mode not in ("wired", "ethernet"):
+if mode in ("", "auto", "default", "wireless", "wifi"):
+    print(f"summary={mode or 'wireless'} default DDS config={sys.argv[1]}", file=sys.stderr)
     sys.exit(0)
+if mode not in ("wired", "ethernet"):
+    print("error=dds_network.mode must be one of: wireless, wired", file=sys.stderr)
+    sys.exit(2)
 
 local_ip = str(dds.get("local_ip", "")).strip().split("/", 1)[0]
 peer_ip = str(dds.get("peer_ip", dds.get("remote_ip", ""))).strip().split("/", 1)[0]
@@ -104,7 +108,14 @@ PY
       export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="wired config=${config_file}"
     fi
   else
-    export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="default DDS config=${config_file}"
+    unset CYCLONEDDS_URI
+    if [[ -s "${build_dir}/dds_config_summary" ]]; then
+      export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY
+      AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="$(sed -n 's/^summary=//p' "${build_dir}/dds_config_summary" | tail -n 1)"
+    fi
+    if [[ -z "${AUTONOMY_DDS_ECHO_CONFIG_SUMMARY:-}" ]]; then
+      export AUTONOMY_DDS_ECHO_CONFIG_SUMMARY="wireless default DDS config=${config_file}"
+    fi
   fi
 }
 
