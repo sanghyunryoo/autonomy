@@ -118,7 +118,7 @@ dds_network:
   interface: enP8p1s0 # optional, e.g. eth0 or enp3s0. Empty selects a connected wired interface.
   local_ip: 192.168.20.10/24
   peer_ip: 192.168.20.1
-  allow_multicast: false
+  allow_multicast: true
 
 robot_state_publisher:
   ros__parameters:

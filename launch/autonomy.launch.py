@@ -152,7 +152,7 @@ def _dds_network_env(data):
     for address in (peer_ip, local_ip):
         if address and address not in peers:
             peers.append(address)
-    peer_xml = "\n".join(f'        <Peer Address="{escape(address)}" />' for address in peers)
+    peer_xml = "\n".join(f'        <Peer address="{escape(address)}" />' for address in peers)
     xml = f"""<?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain Id="any">
