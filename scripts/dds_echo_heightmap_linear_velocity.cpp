@@ -5,9 +5,12 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -38,6 +41,8 @@ struct Options
   std::size_t height_map_width{12};
   std::size_t height_map_height{12};
   double refresh_hz{4.0};
+  std::string csv_path;
+  bool render{true};
 };
 
 void printUsage(const char * argv0)
@@ -53,7 +58,9 @@ void printUsage(const char * argv0)
     << "  --height-map-height N         HeightMap grid height. Default: 12\n"
     << "  --linear-velocity-topic NAME  LinearVelocity topic. Default: lin_vel\n"
     << "  --max-values N                Values printed per sample. Default: 12\n"
-    << "  --refresh-hz HZ               Table refresh rate. Default: 4\n";
+    << "  --refresh-hz HZ               Table refresh rate. Default: 4\n"
+    << "  --csv PATH                    Save height_map rows as time_ns,s_t_* CSV\n"
+    << "  --no-render                   Disable terminal table output\n";
 }
 
 std::size_t envSizeT(const char * name, const std::size_t fallback)
@@ -107,6 +114,10 @@ bool parseOptions(const int argc, char ** argv, Options & options)
       options.max_values = std::stoul(value);
     } else if (arg == "--refresh-hz" && takeArg(i, argc, argv, value)) {
       options.refresh_hz = std::stod(value);
+    } else if (arg == "--csv" && takeArg(i, argc, argv, value)) {
+      options.csv_path = value;
+    } else if (arg == "--no-render") {
+      options.render = false;
     } else {
       std::cerr << "unknown option: " << arg << '\n';
       printUsage(argv[0]);
@@ -221,7 +232,79 @@ void updateStats(TopicStats & stats, const dds_sequence_float & data)
   stats.seen = true;
 }
 
-int takeHeightMap(const dds_entity_t reader, TopicStats & stats)
+class CsvLogger
+{
+public:
+  explicit CsvLogger(std::string path)
+  : path_(std::move(path))
+  {
+    if (path_.empty()) {
+      return;
+    }
+
+    const std::filesystem::path csv_path(path_);
+    if (csv_path.has_parent_path()) {
+      std::filesystem::create_directories(csv_path.parent_path());
+    }
+    file_.open(path_, std::ios::out | std::ios::trunc);
+    if (!file_) {
+      throw std::runtime_error("failed to open CSV file: " + path_);
+    }
+  }
+
+  bool enabled() const
+  {
+    return file_.is_open();
+  }
+
+  void writeState(const dds_sequence_float & data)
+  {
+    if (!enabled()) {
+      return;
+    }
+    if (!header_written_) {
+      state_count_ = data._length;
+      writeHeader();
+    }
+
+    file_ << wallTimeNs();
+    for (std::size_t i = 0; i < state_count_; ++i) {
+      const float value = (data._buffer != nullptr && i < data._length) ? data._buffer[i] : 0.0F;
+      file_ << ',' << std::setprecision(9) << value;
+    }
+    file_ << '\n';
+    file_.flush();
+  }
+
+  const std::string & path() const
+  {
+    return path_;
+  }
+
+private:
+  static std::int64_t wallTimeNs()
+  {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
+  }
+
+  void writeHeader()
+  {
+    file_ << "time_ns";
+    for (std::size_t i = 0; i < state_count_; ++i) {
+      file_ << ",s_t_" << i;
+    }
+    file_ << '\n';
+    header_written_ = true;
+  }
+
+  std::string path_;
+  std::ofstream file_;
+  std::size_t state_count_{0};
+  bool header_written_{false};
+};
+
+int takeHeightMap(const dds_entity_t reader, TopicStats & stats, CsvLogger * csv_logger)
 {
   constexpr std::size_t max_samples = 512;
   void * samples[max_samples]{};
@@ -237,6 +320,9 @@ int takeHeightMap(const dds_entity_t reader, TopicStats & stats)
       if (infos[i].valid_data) {
         const auto * sample = static_cast<const core_dds_HeightMap *>(samples[i]);
         updateStats(stats, sample->data);
+        if (csv_logger != nullptr) {
+          csv_logger->writeState(sample->data);
+        }
       }
     }
   }
@@ -445,16 +531,22 @@ int main(const int argc, char ** argv)
 
   TopicStats height_map_stats;
   TopicStats linear_velocity_stats;
+  CsvLogger csv_logger(options.csv_path);
+  if (csv_logger.enabled()) {
+    std::cout << "CSV logger writing " << csv_logger.path() << '\n'
+              << "Rows are written on HeightMap samples as time_ns,s_t_*.\n";
+  }
+
   auto next_render = std::chrono::steady_clock::now();
   auto next_hz_update = next_render + std::chrono::seconds(1);
   const auto render_period = std::chrono::duration<double>(1.0 / options.refresh_hz);
 
   while (g_running) {
-    if (height_map_reader > 0) {
-      takeHeightMap(height_map_reader, height_map_stats);
-    }
     if (linear_velocity_reader > 0) {
       takeLinearVelocity(linear_velocity_reader, linear_velocity_stats);
+    }
+    if (height_map_reader > 0) {
+      takeHeightMap(height_map_reader, height_map_stats, &csv_logger);
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -465,7 +557,7 @@ int main(const int argc, char ** argv)
       linear_velocity_stats.window_count = 0;
       next_hz_update += std::chrono::seconds(1);
     }
-    if (now >= next_render) {
+    if (options.render && now >= next_render) {
       render(options, height_map_stats, linear_velocity_stats);
       next_render += std::chrono::duration_cast<std::chrono::steady_clock::duration>(render_period);
     }

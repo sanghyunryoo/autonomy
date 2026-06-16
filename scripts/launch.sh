@@ -4,11 +4,14 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  launch.sh [simulation:=true|false] [extra ros2 launch args]
+  launch.sh [simulation:=true|false] [save_data:=true|false] [extra ros2 launch args]
 
 Examples:
   launch.sh
   launch.sh simulation:=true
+  launch.sh save_data:=true
+  launch.sh save_data:=true data_dir:=/tmp/autonomy_run_001
+  launch.sh save_data:=true data_csv:=/tmp/autonomy_run_001/height_map.csv
   launch.sh autonomy_config:=/path/to/autonomy.yaml
 EOF
 }
@@ -23,11 +26,29 @@ setup_candidates=(
 )
 
 autonomy_config_arg=""
+save_data_arg="false"
+data_dir_arg=""
+data_csv_arg=""
+raw_launch_args=()
 for arg in "$@"; do
-  if [[ "${arg}" == autonomy_config:=* ]]; then
-    autonomy_config_arg="${arg#autonomy_config:=}"
-    break
-  fi
+  case "${arg}" in
+    autonomy_config:=*)
+      autonomy_config_arg="${arg#autonomy_config:=}"
+      raw_launch_args+=("${arg}")
+      ;;
+    save_data:=*)
+      save_data_arg="${arg#save_data:=}"
+      ;;
+    data_dir:=*)
+      data_dir_arg="${arg#data_dir:=}"
+      ;;
+    data_csv:=*)
+      data_csv_arg="${arg#data_csv:=}"
+      ;;
+    *)
+      raw_launch_args+=("${arg}")
+      ;;
+  esac
 done
 
 setup_file=""
@@ -296,15 +317,39 @@ configure_wired_dds_network
 resolved_autonomy_config="$(resolve_autonomy_config)"
 clear_realtime_permissions_when_disabled "${resolved_autonomy_config}"
 
+is_true() {
+  case "${1,,}" in
+    true|1|yes|y|on)
+      return 0
+      ;;
+    false|0|no|n|off|"")
+      return 1
+      ;;
+    *)
+      echo "error: expected boolean value, got '${1}'" >&2
+      exit 1
+      ;;
+  esac
+}
+
+absolute_path() {
+  local path="$1"
+  if [[ "${path}" = /* ]]; then
+    printf '%s\n' "${path}"
+  else
+    printf '%s\n' "$(pwd)/${path}"
+  fi
+}
+
 has_simulation_arg=false
-for arg in "$@"; do
+for arg in "${raw_launch_args[@]}"; do
   if [[ "${arg}" == simulation:=* ]]; then
     has_simulation_arg=true
     break
   fi
 done
 
-launch_args=("$@")
+launch_args=("${raw_launch_args[@]}")
 if [[ "${has_simulation_arg}" == false ]]; then
   launch_args=("simulation:=false" "${launch_args[@]}")
 fi
@@ -314,6 +359,62 @@ if [[ -z "${autonomy_config_arg}" ]]; then
 fi
 
 source_launch_file="${package_dir}/launch/autonomy.launch.py"
+
+run_autonomy_launch() {
+  if [[ -f "${source_launch_file}" ]]; then
+    ros2 launch "${source_launch_file}" "${launch_args[@]}"
+  else
+    ros2 launch autonomy autonomy.launch.py "${launch_args[@]}"
+  fi
+}
+
+data_logger_pid=""
+
+cleanup_data_logger() {
+  if [[ -n "${data_logger_pid}" ]] && kill -0 "${data_logger_pid}" >/dev/null 2>&1; then
+    echo "Stopping height-map data logger pid=${data_logger_pid}"
+    kill "${data_logger_pid}" >/dev/null 2>&1 || true
+    wait "${data_logger_pid}" >/dev/null 2>&1 || true
+  fi
+}
+
+start_data_logger() {
+  local data_dir data_csv data_log
+  if [[ -n "${data_csv_arg}" ]]; then
+    data_csv="$(absolute_path "${data_csv_arg}")"
+    data_dir="$(dirname "${data_csv}")"
+  else
+    if [[ -n "${data_dir_arg}" ]]; then
+      data_dir="$(absolute_path "${data_dir_arg}")"
+    else
+      data_dir="${package_dir}/data/$(date +%Y%m%d_%H%M%S)"
+    fi
+    data_csv="${data_dir}/height_map.csv"
+  fi
+
+  mkdir -p "${data_dir}"
+  data_log="${data_dir}/height_map_logger.log"
+
+  echo "Saving DDS height_map CSV: ${data_csv}"
+  echo "Height-map logger log: ${data_log}"
+  AUTONOMY_CONFIG="${resolved_autonomy_config}" \
+    "${script_dir}/run_dds_echo_heightmap_linear_velocity.sh" \
+      --type height_map \
+      --csv "${data_csv}" \
+      --no-render \
+      >"${data_log}" 2>&1 &
+  data_logger_pid="$!"
+}
+
+if is_true "${save_data_arg}"; then
+  trap cleanup_data_logger EXIT INT TERM
+  start_data_logger
+  run_autonomy_launch
+  launch_status="$?"
+  cleanup_data_logger
+  exit "${launch_status}"
+fi
+
 if [[ -f "${source_launch_file}" ]]; then
   exec ros2 launch "${source_launch_file}" "${launch_args[@]}"
 fi
