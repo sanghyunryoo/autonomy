@@ -411,11 +411,11 @@ private:
       return traversability_unknown_cost_;
     }
 
-    const double height_scan_value = scan.data[index];
-    if (!std::isfinite(height_scan_value)) {
+    const double height_map_distance = scan.data[index];
+    if (!std::isfinite(height_map_distance)) {
       return traversability_unknown_cost_;
     }
-    const double z = -height_scan_value - static_cast<double>(scan.height_scan_offset);
+    const double z = -height_map_distance;
     const double obstacle_height = z - traversability_obstacle_floor_z_;
     if (obstacle_height >= traversability_obstacle_height_) {
       return traversability_obstacle_cost_;
@@ -523,11 +523,11 @@ private:
       return -1.0;
     }
 
-    const double height_scan_value = scan.data[index];
-    if (!std::isfinite(height_scan_value)) {
+    const double height_map_distance = scan.data[index];
+    if (!std::isfinite(height_map_distance)) {
       return -1.0;
     }
-    const double z = -height_scan_value - static_cast<double>(scan.height_scan_offset);
+    const double z = -height_map_distance;
     const double obstacle_height = z - traversability_obstacle_floor_z_;
     if (obstacle_height >= traversability_obstacle_height_) {
       return traversability_obstacle_cost_;

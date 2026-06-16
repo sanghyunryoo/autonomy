@@ -77,7 +77,6 @@ private:
   std::string dds_height_map_type_{"core_dds::HeightMap"};
   GridSpec grid_spec_;
   GridSpec local_terrain_grid_spec_;
-  double height_scan_offset_{0.5};
   double base_height_{0.5};
   double obstacle_floor_z_{-0.47957};
   double obstacle_height_threshold_{0.25};
@@ -87,7 +86,6 @@ private:
   double command_filter_lateral_distance_{0.0};
   double command_filter_publish_rate_hz_{10.0};
   bool fill_debug_outputs_{true};
-  double debug_fill_z_{0.0};
   std::chrono::steady_clock::time_point fps_window_start_;
   std::size_t fps_frame_count_{0};
   std::chrono::steady_clock::time_point dds_stats_window_start_;

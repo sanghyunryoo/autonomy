@@ -117,7 +117,6 @@ void ElevationMappingNode::loadParameters()
   declare_parameter<int>("algorithm.point_stride", 1);
   declare_parameter<double>("algorithm.max_range", 2.5);
   declare_parameter<bool>("algorithm.print_frame_info", false);
-  height_scan_offset_ = declare_parameter<double>("algorithm.height_scan_offset", height_scan_offset_);
   base_height_ = declare_parameter<double>("algorithm.base_height", base_height_);
   obstacle_floor_z_ = declare_parameter<double>("command_filter.obstacle_floor_z", obstacle_floor_z_);
   obstacle_height_threshold_ = declare_parameter<double>(
@@ -133,7 +132,6 @@ void ElevationMappingNode::loadParameters()
   command_filter_publish_rate_hz_ = declare_parameter<double>(
     "command_filter.publish_rate_hz", command_filter_publish_rate_hz_);
   fill_debug_outputs_ = declare_parameter<bool>("algorithm.fill_debug_outputs", fill_debug_outputs_);
-  debug_fill_z_ = declare_parameter<double>("algorithm.debug_fill_z", debug_fill_z_);
 
   declare_parameter<double>("algorithm.uncertainty.noise_alpha", 0.001);
   declare_parameter<double>("algorithm.uncertainty.min_meas_var", 0.0004);
@@ -361,7 +359,7 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   }
 
   auto grid = elevation_backend_->build(*msg, msg->header);
-  auto height_map = gridToHeightMapFrame(grid, height_scan_offset_, base_height_);
+  auto height_map = gridToHeightMapFrame(grid, base_height_);
 
   {
     std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
@@ -379,7 +377,7 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   if (local_terrain_backend_) {
     auto local_grid = local_terrain_backend_->build(*msg, msg->header);
     local_terrain_scan_pub_->publish(toRosMaskedHeightScan(
-      gridToHeightMapFrame(local_grid, height_scan_offset_, base_height_)));
+      gridToHeightMapFrame(local_grid, base_height_)));
     fillDebugGrid(local_grid);
     local_terrain_image_pub_->publish(local_grid.toImageMsg());
     local_terrain_cloud_pub_->publish(gridToPointCloud(local_grid));
@@ -487,7 +485,7 @@ void ElevationMappingNode::initializeDdsHeightMapCache()
 {
   DdsHeightMap initial_map;
   const auto count = static_cast<std::size_t>(grid_spec_.width()) * grid_spec_.height();
-  initial_map.data.assign(count, static_cast<float>(base_height_ - height_scan_offset_));
+  initial_map.data.assign(count, static_cast<float>(base_height_));
 
   std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
   latest_dds_height_map_ = std::move(initial_map);
@@ -572,11 +570,11 @@ core::msg::CommandFilter ElevationMappingNode::evaluateCommandFilter(
 
 void ElevationMappingNode::fillDebugGrid(ElevationGrid & grid) const
 {
-  if (!fill_debug_outputs_ || !std::isfinite(debug_fill_z_)) {
+  if (!fill_debug_outputs_ || !std::isfinite(base_height_)) {
     return;
   }
 
-  const auto fill_value = static_cast<float>(debug_fill_z_);
+  const auto fill_value = static_cast<float>(-base_height_);
   for (auto & height : grid.height) {
     if (!std::isfinite(height)) {
       height = fill_value;
@@ -616,7 +614,7 @@ bool ElevationMappingNode::isPathClear(
         continue;
       }
 
-      const auto z = -static_cast<double>(frame.data[index]) - height_scan_offset_;
+      const auto z = -static_cast<double>(frame.data[index]);
       if (std::isfinite(z) && z >= obstacle_z) {
         return false;
       }

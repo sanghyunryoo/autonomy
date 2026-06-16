@@ -3,7 +3,7 @@
      Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
-  name="2WL_V3_Assem_v2">
+  name="2WL_V3_Assem_v3">
   <link
     name="base_link">
     <inertial>
@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/base_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/base_link.STL" />
       </geometry>
       <material
         name="">
@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/base_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/base_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -66,7 +66,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_upper_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_upper_link.STL" />
       </geometry>
       <material
         name="">
@@ -80,7 +80,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_upper_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_upper_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -124,7 +124,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_upper_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_upper_link.STL" />
       </geometry>
       <material
         name="">
@@ -138,7 +138,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_upper_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_upper_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -182,7 +182,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_shoulder_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_shoulder_link.STL" />
       </geometry>
       <material
         name="">
@@ -196,7 +196,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_shoulder_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_shoulder_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -240,7 +240,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_leg_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_leg_link.STL" />
       </geometry>
       <material
         name="">
@@ -254,7 +254,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_leg_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_leg_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -298,7 +298,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_wheel_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_wheel_link.STL" />
       </geometry>
       <material
         name="">
@@ -312,7 +312,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/left_wheel_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/left_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -354,7 +354,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_shoulder_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_shoulder_link.STL" />
       </geometry>
       <material
         name="">
@@ -368,7 +368,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_shoulder_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_shoulder_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -412,7 +412,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_leg_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_leg_link.STL" />
       </geometry>
       <material
         name="">
@@ -426,7 +426,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_leg_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_leg_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -470,7 +470,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_wheel_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_wheel_link.STL" />
       </geometry>
       <material
         name="">
@@ -484,7 +484,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/right_wheel_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/right_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -526,7 +526,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/FL_caster_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/FL_caster_link.STL" />
       </geometry>
       <material
         name="">
@@ -540,7 +540,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/FL_caster_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/FL_caster_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -582,7 +582,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/FR_cater_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/FR_cater_link.STL" />
       </geometry>
       <material
         name="">
@@ -596,7 +596,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/FR_cater_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/FR_cater_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -638,7 +638,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/RL_caster_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/RL_caster_link.STL" />
       </geometry>
       <material
         name="">
@@ -652,7 +652,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/RL_caster_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/RL_caster_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -694,7 +694,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/RR_caster_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/RR_caster_link.STL" />
       </geometry>
       <material
         name="">
@@ -708,7 +708,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://2WL_V3_Assem_v2/meshes/RR_caster_link.STL" />
+          filename="package://2WL_V3_Assem_v3/meshes/RR_caster_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -727,5 +727,217 @@
     <limit
       effort="100"
       velocity="100" />
+  </joint>
+  <link
+    name="sensor_mount_link">
+    <inertial>
+      <origin
+        xyz="-0.00808111425753408 0.0032755352978255 -0.0181941952126975"
+        rpy="0 0 0" />
+      <mass
+        value="0.611294472871864" />
+      <inertia
+        ixx="0.00190990567252455"
+        ixy="-1.62469232000704E-05"
+        ixz="-0.000171504786976252"
+        iyy="0.00139983892501809"
+        iyz="-2.41094372686426E-05"
+        izz="0.00241481264668523" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/sensor_mount_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/sensor_mount_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="sensor_mount_joint"
+    type="fixed">
+    <origin
+      xyz="0.021839 0.00099604 0.093686"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="sensor_mount_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="F_camera_link">
+    <inertial>
+      <origin
+        xyz="-0.000479238809843033 2.78150064902671E-05 -0.0125654095950649"
+        rpy="0 0 0" />
+      <mass
+        value="0.0457682375319545" />
+      <inertia
+        ixx="4.13726235739118E-06"
+        ixy="-1.45862301266028E-09"
+        ixz="-4.09602551553101E-07"
+        iyy="2.7875502481937E-05"
+        iyz="-7.45139426440473E-09"
+        izz="2.75911608124787E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/F_camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/F_camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="F_camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.053264 0.0012578 -0.057725"
+      rpy="-2.3562 0 -1.5708" />
+    <parent
+      link="sensor_mount_link" />
+    <child
+      link="F_camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="A_camera_link">
+    <inertial>
+      <origin
+        xyz="-0.000479240241576417 2.78199923506722E-05 -0.0125653980757386"
+        rpy="0 0 0" />
+      <mass
+        value="0.0457681807749963" />
+      <inertia
+        ixx="4.13724811676117E-06"
+        ixy="-1.459572069017E-09"
+        ixz="-4.09602249856452E-07"
+        iyy="2.78754963673029E-05"
+        iyz="-7.44880970295598E-09"
+        izz="2.75911514849689E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/A_camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/A_camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="A_camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.062914 0.0012578 -0.0175"
+      rpy="-1.5708 0 -1.5708" />
+    <parent
+      link="sensor_mount_link" />
+    <child
+      link="A_camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="lidar_link">
+    <inertial>
+      <origin
+        xyz="-0.00110491573238405 -1.70565712178383E-05 -0.0195148951869959"
+        rpy="0 0 0" />
+      <mass
+        value="0.0523970418812064" />
+      <inertia
+        ixx="1.13651221649026E-05"
+        ixy="-5.78781650611013E-09"
+        ixz="4.19727663352895E-10"
+        iyy="1.13943143931702E-05"
+        iyz="-5.60309057878293E-10"
+        izz="1.91779681220885E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/lidar_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://2WL_V3_Assem_v3/meshes/lidar_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lidar_joint"
+    type="fixed">
+    <origin
+      xyz="0.016496 0.00062477 0.0453"
+      rpy="3.1416 0 0" />
+    <parent
+      link="sensor_mount_link" />
+    <child
+      link="lidar_link" />
+    <axis
+      xyz="0 0 0" />
   </joint>
 </robot>

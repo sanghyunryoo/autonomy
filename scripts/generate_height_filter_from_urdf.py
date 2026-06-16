@@ -53,6 +53,8 @@ class CameraSpec:
     v_fov_deg: float
     min_depth: float
     max_depth: float
+    depth_width: int = 640
+    depth_height: int = 480
 
 
 @dataclass
@@ -125,6 +127,35 @@ CAMERA_SPEC_DB: Dict[str, CameraSpec] = {
     ),
 }
 
+MIN_DEPTH_BY_MODEL_AND_RESOLUTION: Dict[str, Dict[Tuple[int, int], float]] = {
+    # Intel RealSense D400 Series datasheet, Minimum-Z Depth table.
+    # D435/D435i use the D430 depth module. Values are meters.
+    "D435": {
+        (1280, 720): 0.280,
+        (848, 480): 0.195,
+        (640, 480): 0.175,
+        (640, 360): 0.150,
+        (480, 270): 0.120,
+        (424, 240): 0.105,
+    },
+    "D435I": {
+        (1280, 720): 0.280,
+        (848, 480): 0.195,
+        (640, 480): 0.175,
+        (640, 360): 0.150,
+        (480, 270): 0.120,
+        (424, 240): 0.105,
+    },
+    "D455": {
+        (1280, 720): 0.520,
+        (848, 480): 0.350,
+        (640, 480): 0.320,
+        (640, 360): 0.260,
+        (480, 270): 0.200,
+        (424, 240): 0.180,
+    },
+}
+
 
 def normalize_frame_name(name: str) -> str:
     """Normalize frame names for URDF lookup."""
@@ -133,6 +164,35 @@ def normalize_frame_name(name: str) -> str:
 
 def normalize_model_name(model: str) -> str:
     return str(model).strip().upper().replace("-", "").replace("_", "")
+
+
+def resolve_min_depth_for_profile(base: CameraSpec, depth_width: int, depth_height: int) -> float:
+    table = MIN_DEPTH_BY_MODEL_AND_RESOLUTION.get(base.model)
+    if not table:
+        return base.min_depth
+
+    key = (depth_width, depth_height)
+    if key in table:
+        return table[key]
+
+    requested_area = float(depth_width * depth_height)
+    requested_aspect = float(depth_width) / float(depth_height)
+
+    def profile_score(item: Tuple[Tuple[int, int], float]) -> float:
+        (width, height), _ = item
+        area = float(width * height)
+        aspect = float(width) / float(height)
+        return abs(math.log(area / requested_area)) + abs(math.log(aspect / requested_aspect))
+
+    nearest_key, nearest_min_depth = min(table.items(), key=profile_score)
+    print(
+        "[WARN] No RealSense min-depth table entry for "
+        f"model={base.model} depth={depth_width}x{depth_height}; "
+        f"using nearest profile {nearest_key[0]}x{nearest_key[1]} "
+        f"min_depth={nearest_min_depth}m.",
+        file=sys.stderr,
+    )
+    return nearest_min_depth
 
 
 def parse_bool(value, default: bool = True) -> bool:
@@ -443,13 +503,23 @@ def resolve_camera_spec(model: str, stream: dict) -> CameraSpec:
 
     # YAML stream max_range가 있으면 모델 기본 max_depth보다 우선한다.
     max_depth = float(stream.get("max_range", base.max_depth))
+    depth_width = int(stream.get("depth_width", base.depth_width))
+    depth_height = int(stream.get("depth_height", base.depth_height))
+
+    if depth_width <= 0 or depth_height <= 0:
+        raise ValueError(
+            f"Invalid depth image resolution for camera model '{model}': "
+            f"depth_width={depth_width}, depth_height={depth_height}"
+        )
 
     return CameraSpec(
         model=base.model,
         h_fov_deg=base.h_fov_deg,
         v_fov_deg=base.v_fov_deg,
-        min_depth=base.min_depth,
+        min_depth=resolve_min_depth_for_profile(base, depth_width, depth_height),
         max_depth=max_depth,
+        depth_width=depth_width,
+        depth_height=depth_height,
     )
 
 
@@ -1063,7 +1133,7 @@ def parse_args():
     )
     parser.add_argument(
         "--urdf",
-        default=str(root / "resources" / "urdf" / "f8.urdf"),
+        default=str(root / "resources" / "urdf" / "f4.urdf"),
         help="Robot URDF path.",
     )
     parser.add_argument(
@@ -1168,7 +1238,8 @@ def main():
         print(
             f"  role={cam.role} model={cam.model} "
             f"mount={cam.mount_frame} optical={cam.optical_frame} "
-            f"max_depth={cam.spec.max_depth}"
+            f"depth={cam.spec.depth_width}x{cam.spec.depth_height} "
+            f"min_depth={cam.spec.min_depth} max_depth={cam.spec.max_depth}"
         )
 
     print("")
@@ -1232,22 +1303,23 @@ def main():
     print("def masked_height_scan(")
     print("    env: ManagerBasedEnv,")
     print("    sensor_cfg: SceneEntityCfg,")
-    print("    offset: float = 0.5,")
     print("    base_height: float = 0.5,")
     print(") -> torch.Tensor:")
     print('    \"\"\"Camera-FOV masked height scan for sim-to-real matching.')
     print("")
-    print("    Inside camera FOV, this returns the normal height scan:")
-    print("        sensor_height - hit_point_z - offset")
+    print("    Inside camera FOV, this returns distance from the target frame:")
+    print("        -point_z_in_target_frame")
     print("")
-    print("    Outside camera FOV, it returns base_height - offset, which mimics")
-    print("    unobserved cells being filled with the robot base-height prior.")
+    print("    Outside camera FOV, it returns 0.0. Unobserved in-FOV cells should use")
+    print("    base_height when a separate FOV mask is available.")
     print('    \"\"\"')
     print("    sensor = env.scene.sensors[sensor_cfg.name]")
-    print("    height = sensor.data.pos_w[:, 2].unsqueeze(1) - sensor.data.ray_hits_w[..., 2] - offset")
-    print("    fill_value = torch.full_like(height, float(base_height) - float(offset))")
+    print("    base_pos_w, base_quat_w = sensor._get_base_pose_from_sensor_pose(slice(None))")
+    print("    points_base = sensor._world_hits_to_base(sensor.data.ray_hits_w, base_pos_w, base_quat_w)")
+    print("    distance = -points_base[..., 2]")
+    print("    fov_outside = torch.zeros_like(distance)")
     print("    valid_mask = sensor.data.valid_mask.bool()")
-    print("    return torch.where(valid_mask, height, fill_value)")
+    print("    return torch.where(valid_mask, distance, fov_outside)")
 
 
 if __name__ == "__main__":
