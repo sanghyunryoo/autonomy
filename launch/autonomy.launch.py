@@ -627,6 +627,7 @@ def _make_stack(context, *args, **kwargs):
                 "autonomy_status_topic": "/autonomy_manager/status",
             }],
             name="realsense_usb_mapper",
+            output="screen",
         ))
 
     actions.extend([

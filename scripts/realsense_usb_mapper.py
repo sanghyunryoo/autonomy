@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
@@ -90,8 +91,10 @@ class RealSenseUsbMapper(Node):
             self._operation_mode,
         )
         self._stream = self._config["stream"]
+        self._temperature_config = self._config["camera_temperature"]
 
         self._binding_pub = self.create_publisher(String, "~/camera_bindings", 10)
+        self._temperature_pub = self.create_publisher(String, "~/temperatures", 10)
         self._heartbeat_pub = self.create_publisher(String, "/autonomy/heartbeat/realsense_usb_mapper", 10)
         self._depth_publishers = {}
         self._camera_info_publishers = {}
@@ -103,6 +106,9 @@ class RealSenseUsbMapper(Node):
         self._color_intrinsics = {}
         self._depth_scales = {}
         self._active_profiles = {}
+        self._depth_sensors = {}
+        self._overheat_shutdown_requested = False
+        self._last_temperature_log_ns = 0
         self._logged_depth_publishers = set()
         self._logged_color_publishers = set()
         self._autonomy_sub = None
@@ -219,12 +225,19 @@ class RealSenseUsbMapper(Node):
             ],
         )
 
+        temperature = data.get("camera_temperature", {}) or {}
+        temperature.setdefault("enabled", True)
+        temperature.setdefault("publish_rate_hz", 1.0)
+        temperature.setdefault("danger_celsius", 70.0)
+        temperature.setdefault("shutdown_on_danger", True)
+
         operation_modes = data.get("operation_modes") or self._default_operation_modes()
 
         return {
             "camera_bindings": bindings,
             "operation_modes": operation_modes,
             "stream": stream,
+            "camera_temperature": temperature,
         }
 
     def _default_operation_modes(self):
@@ -358,6 +371,7 @@ class RealSenseUsbMapper(Node):
             self._depth_intrinsics[role] = active_profile["depth_intrinsics"]
             self._depth_scales[role] = active_profile["depth_scale"]
             self._active_profiles[role] = active_profile
+            self._depth_sensors[role] = active_profile["depth_sensor"]
             self._depth_publishers[role] = self.create_publisher(
                 Image, binding["depth_topic"], qos_profile_sensor_data
             )
@@ -389,6 +403,7 @@ class RealSenseUsbMapper(Node):
         self._color_intrinsics.clear()
         self._depth_scales.clear()
         self._active_profiles.clear()
+        self._depth_sensors.clear()
         self._depth_publishers.clear()
         self._camera_info_publishers.clear()
         self._color_publishers.clear()
@@ -455,6 +470,7 @@ class RealSenseUsbMapper(Node):
                     ).as_video_stream_profile()
                     active_profile["color_intrinsics"] = color_stream.get_intrinsics()
                 active_profile["depth_scale"] = depth_sensor.get_depth_scale()
+                active_profile["depth_sensor"] = depth_sensor
                 return pipeline, active_profile
             except RuntimeError as exc:
                 last_error = exc
@@ -641,14 +657,111 @@ class RealSenseUsbMapper(Node):
         ]
         return msg
 
+    def _temperature_enabled(self):
+        return parse_bool(self._temperature_config.get("enabled", True), default=True)
+
+    def _temperature_log_interval_ns(self):
+        hz = max(0.1, float(self._temperature_config.get("publish_rate_hz", 1.0)))
+        return int(1.0e9 / hz)
+
+    def _sensor_temperatures(self, sensor):
+        if sensor is None or self._rs is None:
+            return {}
+
+        option_names = {
+            "asic": "asic_temperature",
+            "projector": "projector_temperature",
+        }
+        readings = {}
+        for name, option_attr in option_names.items():
+            option = getattr(self._rs.option, option_attr, None)
+            if option is None:
+                continue
+            try:
+                if sensor.supports(option):
+                    readings[name] = float(sensor.get_option(option))
+            except RuntimeError as exc:
+                readings[name] = f"unavailable:{exc}"
+        return readings
+
+    def _temperature_payload(self):
+        readings = {}
+        if not self._temperature_enabled():
+            return readings
+
+        for binding in self._bindings:
+            role = binding["role"]
+            sensor = self._depth_sensors.get(role)
+            temperatures = self._sensor_temperatures(sensor)
+            if not temperatures:
+                continue
+
+            readings[role] = {
+                "camera_name": binding.get("camera_name", ""),
+                "serial_no": binding.get("resolved_serial_no", ""),
+                "usb_port_id": binding.get("resolved_usb_port_id", ""),
+                "physical_port": binding.get("physical_port", ""),
+                "temperatures_c": temperatures,
+            }
+        return readings
+
+    def _publish_temperature_payload(self, readings):
+        msg = String()
+        msg.data = json.dumps(readings, sort_keys=True)
+        self._temperature_pub.publish(msg)
+
+    def _log_temperature_payload(self, readings):
+        if not readings:
+            return
+
+        now_ns = self.get_clock().now().nanoseconds
+        if now_ns - self._last_temperature_log_ns < self._temperature_log_interval_ns():
+            return
+        self._last_temperature_log_ns = now_ns
+
+        parts = []
+        for role, item in sorted(readings.items()):
+            temps = item.get("temperatures_c", {})
+            temp_text = ", ".join(
+                f"{name}={value:.1f}C" if isinstance(value, float) else f"{name}={value}"
+                for name, value in sorted(temps.items())
+            )
+            parts.append(
+                f"{role}({item.get('camera_name', '')}, usb={item.get('usb_port_id', '')}): {temp_text}"
+            )
+        self.get_logger().info("RealSense temperatures: " + " | ".join(parts))
+
+    def _check_temperature_shutdown(self, readings):
+        if self._overheat_shutdown_requested:
+            return
+        if not parse_bool(self._temperature_config.get("shutdown_on_danger", True), default=True):
+            return
+
+        danger_c = float(self._temperature_config.get("danger_celsius", 70.0))
+        for role, item in readings.items():
+            for name, value in item.get("temperatures_c", {}).items():
+                if not isinstance(value, float) or value < danger_c:
+                    continue
+                self._overheat_shutdown_requested = True
+                self.get_logger().fatal(
+                    f"RealSense overheat: role={role} sensor={name} "
+                    f"temperature={value:.1f}C >= danger_celsius={danger_c:.1f}C. "
+                    "Stopping cameras and shutting down autonomy RealSense mapper."
+                )
+                self._stop_cameras()
+                rclpy.shutdown()
+                return
+
     def _publish_status(self):
         if not self._processing_active():
             msg = String()
             msg.data = json.dumps({"status": "standby", "bindings": []}, sort_keys=True)
             self._binding_pub.publish(msg)
+            self._publish_temperature_payload({})
             return
 
         connected = self._connected_devices()
+        temperature_readings = self._temperature_payload()
         connected_serials = set(connected.keys())
         connected_usb_ports = {
             info["usb_port_id"] for info in connected.values() if info.get("usb_port_id")
@@ -668,6 +781,8 @@ class RealSenseUsbMapper(Node):
             item["resolved_usb_port_id"] = device_info.get("usb_port_id", "") if device_info else ""
             item["physical_port"] = device_info.get("physical_port", "") if device_info else ""
             item["device_model"] = device_info.get("name", "") if device_info else ""
+            if item.get("role") in temperature_readings:
+                item["temperatures_c"] = temperature_readings[item["role"]]["temperatures_c"]
             resolved.append(item)
 
         payload = {
@@ -675,12 +790,17 @@ class RealSenseUsbMapper(Node):
             "connected_usb_port_ids": sorted(connected_usb_ports),
             "unconfigured_connected_usb_port_ids": sorted(connected_usb_ports - configured_usb_ports),
             "missing_configured_usb_port_ids": sorted(configured_usb_ports - connected_usb_ports),
+            "temperature_danger_celsius": float(self._temperature_config.get("danger_celsius", 70.0)),
+            "temperatures": temperature_readings,
             "bindings": resolved,
         }
 
         msg = String()
         msg.data = json.dumps(payload, sort_keys=True)
         self._binding_pub.publish(msg)
+        self._publish_temperature_payload(temperature_readings)
+        self._log_temperature_payload(temperature_readings)
+        self._check_temperature_shutdown(temperature_readings)
 
     def _publish_heartbeat(self):
         msg = String()
@@ -696,12 +816,13 @@ def main():
     node = RealSenseUsbMapper()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node._stop_cameras()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
