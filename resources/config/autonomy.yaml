@@ -120,7 +120,7 @@ camera_temperature:
   shutdown_on_danger: true
 
 dds_network:
-  mode: wired  # wired or wireless
+  mode: wireless  # wired or wireless
   interface: enP8p1s0 # optional, e.g. eth0 or enp3s0. Empty selects a connected wired interface.
   local_ip: 192.168.20.10/24
   peer_ip: 192.168.20.1
@@ -223,7 +223,7 @@ elevation_mapping_node:
     algorithm:
       point_stride: 1
       max_range: 2.5
-      print_frame_info: false
+      print_frame_info: false 
       base_height: 0.33
       clipping_min: 0.0
       clipping_max: 0.33
