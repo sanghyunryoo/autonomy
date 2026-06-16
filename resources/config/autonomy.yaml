@@ -219,6 +219,8 @@ elevation_mapping_node:
       max_range: 2.5
       print_frame_info: false
       base_height: 0.33
+      clipping_min: 0.0
+      clipping_max: 0.33
       fill_debug_outputs: true
 
       uncertainty:

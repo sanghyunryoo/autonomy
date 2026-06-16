@@ -16,6 +16,8 @@ float32 y_max
 # height_scan_offset is kept for message compatibility and is published as 0.
 float32 height_scan_offset
 float32 base_height
+float32 clipping_min
+float32 clipping_max
 float32 fill_value
 
 float32[] data

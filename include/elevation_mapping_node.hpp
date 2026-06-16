@@ -82,6 +82,8 @@ private:
   GridSpec grid_spec_;
   GridSpec local_terrain_grid_spec_;
   double base_height_{0.5};
+  double clipping_min_{0.0};
+  double clipping_max_{0.33};
   bool fov_filter_enabled_{true};
   double fov_h_fov_deg_{87.0};
   double fov_v_fov_deg_{58.0};

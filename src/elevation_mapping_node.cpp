@@ -118,6 +118,8 @@ void ElevationMappingNode::loadParameters()
   declare_parameter<double>("algorithm.max_range", 2.5);
   declare_parameter<bool>("algorithm.print_frame_info", false);
   base_height_ = declare_parameter<double>("algorithm.base_height", base_height_);
+  clipping_min_ = declare_parameter<double>("algorithm.clipping_min", clipping_min_);
+  clipping_max_ = declare_parameter<double>("algorithm.clipping_max", clipping_max_);
   fov_filter_enabled_ = declare_parameter<bool>("fov_filter.enabled", fov_filter_enabled_);
   fov_h_fov_deg_ = declare_parameter<double>("fov_filter.h_fov_deg", fov_h_fov_deg_);
   fov_v_fov_deg_ = declare_parameter<double>("fov_filter.v_fov_deg", fov_v_fov_deg_);
@@ -371,7 +373,7 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
   }
 
   auto grid = elevation_backend_->build(*msg, msg->header);
-  auto height_map = gridToHeightMapFrame(grid, base_height_);
+  auto height_map = gridToHeightMapFrame(grid, base_height_, clipping_min_, clipping_max_);
   applyFovMask(height_map);
 
   {
@@ -389,7 +391,7 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 
   if (local_terrain_backend_) {
     auto local_grid = local_terrain_backend_->build(*msg, msg->header);
-    auto local_height_map = gridToHeightMapFrame(local_grid, base_height_);
+    auto local_height_map = gridToHeightMapFrame(local_grid, base_height_, clipping_min_, clipping_max_);
     applyFovMask(local_height_map);
     local_terrain_scan_pub_->publish(toRosMaskedHeightScan(local_height_map));
     fillDebugGrid(local_grid);
@@ -499,7 +501,9 @@ void ElevationMappingNode::initializeDdsHeightMapCache()
 {
   DdsHeightMap initial_map;
   const auto count = static_cast<std::size_t>(grid_spec_.width()) * grid_spec_.height();
-  initial_map.data.assign(count, static_cast<float>(base_height_));
+  const auto clip_min = std::min(clipping_min_, clipping_max_);
+  const auto clip_max = std::max(clipping_min_, clipping_max_);
+  initial_map.data.assign(count, static_cast<float>(std::clamp(base_height_, clip_min, clip_max)));
 
   std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
   latest_dds_height_map_ = std::move(initial_map);

@@ -16,6 +16,8 @@ struct HeightMapFrame
   std_msgs::msg::Header header;
   GridSpec spec;
   float base_height{0.0F};
+  float clipping_min{0.0F};
+  float clipping_max{0.0F};
   float fill_value{0.0F};
   std::vector<float> data;
   std::vector<std::uint8_t> valid_mask;
@@ -29,7 +31,9 @@ struct DdsHeightMap
 
 [[nodiscard]] HeightMapFrame gridToHeightMapFrame(
   const ElevationGrid & grid,
-  double base_height);
+  double base_height,
+  double clipping_min,
+  double clipping_max);
 
 [[nodiscard]] autonomy::msg::MaskedHeightScan toRosMaskedHeightScan(
   const HeightMapFrame & frame);
