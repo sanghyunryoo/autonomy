@@ -78,7 +78,7 @@ camera_bindings:
 
     - role: front
       enabled: true
-      usb_port_id: "1-2.4"
+      usb_port_id: "2-1.4"
       model: d435i
       camera_name: front_camera
       imu_topic: /front_camera/imu
@@ -86,8 +86,8 @@ camera_bindings:
       rgb_camera_info_topic: /front_camera/color/camera_info
       depth_topic: /front_camera/depth/image_rect_raw
       camera_info_topic: /front_camera/depth/camera_info
-      mount_frame: camera_link
-      optical_frame: camera_link
+      mount_frame: F_camera_link
+      optical_frame: F_camera_link
 
     - role: rear
       enabled: false
@@ -231,7 +231,7 @@ elevation_mapping_node:
         mahalanobis_thresh: 3.0
         dyn_env_var_bump: 0.0225
         dyn_reset_delta: 0.1
-      
+
       frame_aggregation:
         robust_height_gate: 0.04
         intra_cell_min_support_gap: 0.025
