@@ -231,7 +231,7 @@ elevation_mapping_node:
         mahalanobis_thresh: 3.0
         dyn_env_var_bump: 0.0225
         dyn_reset_delta: 0.1
-
+      
       frame_aggregation:
         robust_height_gate: 0.04
         intra_cell_min_support_gap: 0.025

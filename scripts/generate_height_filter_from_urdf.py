@@ -1310,16 +1310,15 @@ def main():
     print("    Inside camera FOV, this returns distance from the target frame:")
     print("        -point_z_in_target_frame")
     print("")
-    print("    Outside camera FOV, it returns 0.0. Unobserved in-FOV cells should use")
-    print("    base_height when a separate FOV mask is available.")
+    print("    Outside camera FOV and unobserved cells return base_height.")
     print('    \"\"\"')
     print("    sensor = env.scene.sensors[sensor_cfg.name]")
     print("    base_pos_w, base_quat_w = sensor._get_base_pose_from_sensor_pose(slice(None))")
     print("    points_base = sensor._world_hits_to_base(sensor.data.ray_hits_w, base_pos_w, base_quat_w)")
     print("    distance = -points_base[..., 2]")
-    print("    fov_outside = torch.zeros_like(distance)")
+    print("    fill_value = torch.full_like(distance, float(base_height))")
     print("    valid_mask = sensor.data.valid_mask.bool()")
-    print("    return torch.where(valid_mask, distance, fov_outside)")
+    print("    return torch.where(valid_mask, distance, fill_value)")
 
 
 if __name__ == "__main__":

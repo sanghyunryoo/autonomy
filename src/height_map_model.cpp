@@ -55,19 +55,6 @@ DdsHeightMap toDdsHeightMap(const HeightMapFrame & frame)
 {
   DdsHeightMap msg;
   msg.data = frame.data;
-
-  if (!frame.fov_mask.empty()) {
-    const auto count = std::min(msg.data.size(), frame.fov_mask.size());
-    for (std::size_t index = 0; index < count; ++index) {
-      if (frame.fov_mask[index] == 0U) {
-        msg.data[index] = 0.0F;
-      }
-    }
-    for (std::size_t index = count; index < msg.data.size(); ++index) {
-      msg.data[index] = 0.0F;
-    }
-  }
-
   return msg;
 }
 

@@ -498,11 +498,8 @@ void ElevationMappingNode::configureDdsPublishThread()
 void ElevationMappingNode::initializeDdsHeightMapCache()
 {
   DdsHeightMap initial_map;
-  const auto fov_mask = computeFovMask(grid_spec_);
-  initial_map.data.resize(fov_mask.size(), 0.0F);
-  for (std::size_t index = 0; index < fov_mask.size(); ++index) {
-    initial_map.data[index] = fov_mask[index] == 0U ? 0.0F : static_cast<float>(base_height_);
-  }
+  const auto count = static_cast<std::size_t>(grid_spec_.width()) * grid_spec_.height();
+  initial_map.data.assign(count, static_cast<float>(base_height_));
 
   std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
   latest_dds_height_map_ = std::move(initial_map);
