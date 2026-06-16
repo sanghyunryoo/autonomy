@@ -1,5 +1,6 @@
 #include "height_map_model.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace autonomy
@@ -18,11 +19,12 @@ HeightMapFrame gridToHeightMapFrame(
   const auto count = static_cast<std::size_t>(grid.spec.width()) * grid.spec.height();
   frame.data.resize(count, frame.fill_value);
   frame.valid_mask.resize(count, 0);
+  frame.fov_mask.resize(count, 1);
 
   for (std::size_t index = 0; index < count; ++index) {
     const auto z = grid.height[index];
     if (std::isfinite(z)) {
-      frame.data[index] = static_cast<float>(-static_cast<double>(z));
+      frame.data[index] = static_cast<float>(std::max(0.0, -static_cast<double>(z)));
       frame.valid_mask[index] = 1;
     }
   }
@@ -53,6 +55,19 @@ DdsHeightMap toDdsHeightMap(const HeightMapFrame & frame)
 {
   DdsHeightMap msg;
   msg.data = frame.data;
+
+  if (!frame.fov_mask.empty()) {
+    const auto count = std::min(msg.data.size(), frame.fov_mask.size());
+    for (std::size_t index = 0; index < count; ++index) {
+      if (frame.fov_mask[index] == 0U) {
+        msg.data[index] = 0.0F;
+      }
+    }
+    for (std::size_t index = count; index < msg.data.size(); ++index) {
+      msg.data[index] = 0.0F;
+    }
+  }
+
   return msg;
 }
 

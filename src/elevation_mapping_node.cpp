@@ -118,6 +118,18 @@ void ElevationMappingNode::loadParameters()
   declare_parameter<double>("algorithm.max_range", 2.5);
   declare_parameter<bool>("algorithm.print_frame_info", false);
   base_height_ = declare_parameter<double>("algorithm.base_height", base_height_);
+  fov_filter_enabled_ = declare_parameter<bool>("fov_filter.enabled", fov_filter_enabled_);
+  fov_h_fov_deg_ = declare_parameter<double>("fov_filter.h_fov_deg", fov_h_fov_deg_);
+  fov_v_fov_deg_ = declare_parameter<double>("fov_filter.v_fov_deg", fov_v_fov_deg_);
+  fov_min_depth_ = declare_parameter<double>("fov_filter.min_depth", fov_min_depth_);
+  fov_max_depth_ = declare_parameter<double>("fov_filter.max_depth", fov_max_depth_);
+  const auto T_base_optical = declare_parameter<std::vector<double>>(
+    "fov_filter.T_base_optical",
+    std::vector<double>(T_base_optical_.begin(), T_base_optical_.end()));
+  if (T_base_optical.size() != T_base_optical_.size()) {
+    throw std::invalid_argument("fov_filter.T_base_optical must contain 16 row-major values");
+  }
+  std::copy(T_base_optical.begin(), T_base_optical.end(), T_base_optical_.begin());
   obstacle_floor_z_ = declare_parameter<double>("command_filter.obstacle_floor_z", obstacle_floor_z_);
   obstacle_height_threshold_ = declare_parameter<double>(
     "command_filter.obstacle_height_threshold", obstacle_height_threshold_);
@@ -360,6 +372,7 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 
   auto grid = elevation_backend_->build(*msg, msg->header);
   auto height_map = gridToHeightMapFrame(grid, base_height_);
+  applyFovMask(height_map);
 
   {
     std::lock_guard<std::mutex> lock(latest_height_map_mutex_);
@@ -376,8 +389,9 @@ void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 
   if (local_terrain_backend_) {
     auto local_grid = local_terrain_backend_->build(*msg, msg->header);
-    local_terrain_scan_pub_->publish(toRosMaskedHeightScan(
-      gridToHeightMapFrame(local_grid, base_height_)));
+    auto local_height_map = gridToHeightMapFrame(local_grid, base_height_);
+    applyFovMask(local_height_map);
+    local_terrain_scan_pub_->publish(toRosMaskedHeightScan(local_height_map));
     fillDebugGrid(local_grid);
     local_terrain_image_pub_->publish(local_grid.toImageMsg());
     local_terrain_cloud_pub_->publish(gridToPointCloud(local_grid));
@@ -484,8 +498,11 @@ void ElevationMappingNode::configureDdsPublishThread()
 void ElevationMappingNode::initializeDdsHeightMapCache()
 {
   DdsHeightMap initial_map;
-  const auto count = static_cast<std::size_t>(grid_spec_.width()) * grid_spec_.height();
-  initial_map.data.assign(count, static_cast<float>(base_height_));
+  const auto fov_mask = computeFovMask(grid_spec_);
+  initial_map.data.resize(fov_mask.size(), 0.0F);
+  for (std::size_t index = 0; index < fov_mask.size(); ++index) {
+    initial_map.data[index] = fov_mask[index] == 0U ? 0.0F : static_cast<float>(base_height_);
+  }
 
   std::lock_guard<std::mutex> lock(latest_dds_height_map_mutex_);
   latest_dds_height_map_ = std::move(initial_map);
@@ -582,6 +599,64 @@ void ElevationMappingNode::fillDebugGrid(ElevationGrid & grid) const
   }
 }
 
+void ElevationMappingNode::applyFovMask(HeightMapFrame & frame) const
+{
+  frame.fov_mask = computeFovMask(frame.spec);
+}
+
+std::vector<std::uint8_t> ElevationMappingNode::computeFovMask(const GridSpec & spec) const
+{
+  const auto width = spec.width();
+  const auto height = spec.height();
+  std::vector<std::uint8_t> mask(static_cast<std::size_t>(width) * height, 1U);
+
+  if (!fov_filter_enabled_) {
+    return mask;
+  }
+
+  for (std::uint32_t row = 0; row < height; ++row) {
+    const auto y = spec.y_min + (static_cast<double>(row) + 0.5) * spec.resolution;
+    for (std::uint32_t col = 0; col < width; ++col) {
+      const auto x = spec.x_min + (static_cast<double>(col) + 0.5) * spec.resolution;
+      const auto index = static_cast<std::size_t>(row) * width + col;
+      mask[index] = isInsideCameraFov(x, y, -base_height_) ? 1U : 0U;
+    }
+  }
+
+  return mask;
+}
+
+bool ElevationMappingNode::isInsideCameraFov(
+  const double x_base,
+  const double y_base,
+  const double z_base) const
+{
+  constexpr double kPi = 3.14159265358979323846;
+
+  const double px = x_base - T_base_optical_[3];
+  const double py = y_base - T_base_optical_[7];
+  const double pz = z_base - T_base_optical_[11];
+
+  const double x_optical =
+    T_base_optical_[0] * px + T_base_optical_[4] * py + T_base_optical_[8] * pz;
+  const double y_optical =
+    T_base_optical_[1] * px + T_base_optical_[5] * py + T_base_optical_[9] * pz;
+  const double z_optical =
+    T_base_optical_[2] * px + T_base_optical_[6] * py + T_base_optical_[10] * pz;
+
+  if (!std::isfinite(x_optical) || !std::isfinite(y_optical) || !std::isfinite(z_optical)) {
+    return false;
+  }
+  if (z_optical <= fov_min_depth_ || z_optical >= fov_max_depth_) {
+    return false;
+  }
+
+  const double h_half = fov_h_fov_deg_ * kPi / 360.0;
+  const double v_half = fov_v_fov_deg_ * kPi / 360.0;
+  return std::abs(std::atan2(x_optical, z_optical)) < h_half &&
+    std::abs(std::atan2(y_optical, z_optical)) < v_half;
+}
+
 bool ElevationMappingNode::isPathClear(
   const HeightMapFrame & frame,
   const double x_min,
@@ -611,6 +686,9 @@ bool ElevationMappingNode::isPathClear(
 
       const auto index = static_cast<std::size_t>(row) * width + col;
       if (index >= frame.data.size() || index >= frame.valid_mask.size() || frame.valid_mask[index] == 0) {
+        continue;
+      }
+      if (index < frame.fov_mask.size() && frame.fov_mask[index] == 0U) {
         continue;
       }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -44,6 +45,9 @@ private:
     double move_forward,
     double move_right) const;
   void fillDebugGrid(ElevationGrid & grid) const;
+  void applyFovMask(HeightMapFrame & frame) const;
+  [[nodiscard]] std::vector<std::uint8_t> computeFovMask(const GridSpec & spec) const;
+  [[nodiscard]] bool isInsideCameraFov(double x_base, double y_base, double z_base) const;
   [[nodiscard]] sensor_msgs::msg::PointCloud2 gridToPointCloud(const ElevationGrid & grid) const;
   [[nodiscard]] bool isPathClear(
     const HeightMapFrame & frame,
@@ -78,6 +82,17 @@ private:
   GridSpec grid_spec_;
   GridSpec local_terrain_grid_spec_;
   double base_height_{0.5};
+  bool fov_filter_enabled_{true};
+  double fov_h_fov_deg_{87.0};
+  double fov_v_fov_deg_{58.0};
+  double fov_min_depth_{0.175};
+  double fov_max_depth_{2.5};
+  std::array<double, 16> T_base_optical_{{
+    -0.0000036732, -0.7071106772, 0.7071028851, 0.0751030000,
+    -1.0000000000, 0.0000025974, -0.0000025973, 0.0022538400,
+    0.0000000000, -0.7071028852, -0.7071106772, 0.0359610000,
+    0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000,
+  }};
   double obstacle_floor_z_{-0.47957};
   double obstacle_height_threshold_{0.25};
   double forward_lateral_half_width_{0.25};

@@ -19,6 +19,7 @@ struct HeightMapFrame
   float fill_value{0.0F};
   std::vector<float> data;
   std::vector<std::uint8_t> valid_mask;
+  std::vector<std::uint8_t> fov_mask;
 };
 
 struct DdsHeightMap

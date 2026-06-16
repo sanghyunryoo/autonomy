@@ -262,6 +262,19 @@ elevation_mapping_node:
       runtime:
         min_runtime_fps: 60
 
+    fov_filter:
+      enabled: true
+      h_fov_deg: 87.0
+      v_fov_deg: 58.0
+      min_depth: 0.175
+      max_depth: 2.5
+      T_base_optical: [
+        -0.0000036732, -0.7071106772, 0.7071028851, 0.0751030000,
+        -1.0000000000, 0.0000025974, -0.0000025973, 0.0022538400,
+        0.0000000000, -0.7071028852, -0.7071106772, 0.0359610000,
+        0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000,
+      ]
+
     command_filter:
       obstacle_floor_z: -0.47957
       obstacle_height_threshold: 0.25
