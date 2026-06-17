@@ -77,6 +77,14 @@ def _robot_frame(data, link_key, default_link):
     return _robot_frame_prefix(data) + link
 
 
+def _robot_map_frame(data):
+    return _robot_frame(data, "map_frame", "map")
+
+
+def _robot_odom_frame(data):
+    return _robot_frame(data, "odom_frame", "odom")
+
+
 def _robot_sim_topic_prefix(data):
     params = _robot_params(data)
     default = f"/robot_{_robot_namespace(data)}"
@@ -382,7 +390,7 @@ def _point_lio_actions(data, simulation, use_sim_time):
     if simulation and not imu_topic:
         imu_topic = f"{_robot_sim_topic_prefix(data)}/imu"
     overrides = {
-        "odom_header_frame_id": str(params.get("odom_frame_id", "map")),
+        "odom_header_frame_id": str(params.get("odom_frame_id", _robot_map_frame(data))),
         "odom_child_frame_id": str(params.get("base_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint"))),
         "use_sim_time": simulation,
         "use_imu_as_input": _parse_bool(params.get("use_imu_as_input", False), default=False),
@@ -461,14 +469,18 @@ def _nav2_params_file(data, nav2_params):
     with open(source, "r", encoding="utf-8") as stream:
         params = yaml.safe_load(stream) or {}
     base_frame = _robot_frame(data, "base_footprint_link", "base_footprint")
+    map_frame = _robot_map_frame(data)
     for node_name in ("bt_navigator", "controller_server", "behavior_server"):
         node_params = params.get(node_name, {}).get("ros__parameters", {})
         if isinstance(node_params, dict):
             node_params["robot_base_frame"] = base_frame
+            if "global_frame" in node_params:
+                node_params["global_frame"] = map_frame
     for costmap_name in ("local_costmap", "global_costmap"):
         node_params = params.get(costmap_name, {}).get(costmap_name, {}).get("ros__parameters", {})
         if isinstance(node_params, dict):
             node_params["robot_base_frame"] = base_frame
+            node_params["global_frame"] = map_frame
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -745,12 +757,14 @@ def _imu_stabilized_params(data, space):
 
 def _localization_pose_adapter_params(data):
     params = _node_params(data, "localization_pose_adapter_node")
+    params["odom_frame_id"] = _robot_map_frame(data)
     params["base_frame_id"] = str(params.get("base_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint")))
     return params
 
 
 def _cmd_vel_to_command_user_params(data):
     params = _node_params(data, "cmd_vel_to_command_user_node")
+    params["odom_frame_id"] = _robot_odom_frame(data)
     params["base_frame_id"] = str(params.get("base_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint")))
     return params
 
@@ -758,6 +772,24 @@ def _cmd_vel_to_command_user_params(data):
 def _rl_local_planner_params(data):
     params = _node_params(data, "rl_local_planner_node")
     params["costmap_frame_id"] = str(params.get("costmap_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint")))
+    return params
+
+
+def _point_lio_map_saver_params(data):
+    params = _node_params(data, "point_lio_map_saver_node")
+    params["frame_id"] = _robot_map_frame(data)
+    return params
+
+
+def _global_planner_params(data):
+    params = _resolve_node_paths(_node_params(data, "global_planner_node"), ("map_file",))
+    params["map_frame_id"] = _robot_map_frame(data)
+    return params
+
+
+def _goal_pose_to_nav2_action_params(data):
+    params = _node_params(data, "goal_pose_to_nav2_action_node")
+    params["default_frame_id"] = _robot_map_frame(data)
     return params
 
 
@@ -911,7 +943,7 @@ def _make_stack(context, *args, **kwargs):
         ),
         _worker_node(
             "point_lio_map_saver_node",
-            [_node_params(data, "point_lio_map_saver_node"), use_sim_time, {"map_dir": map_dir}],
+            [_point_lio_map_saver_params(data), use_sim_time, {"map_dir": map_dir}],
         ),
     ])
     actions.extend(_point_lio_actions(data, simulation, use_sim_time))
@@ -943,7 +975,7 @@ def _make_stack(context, *args, **kwargs):
         actions.append(
             _worker_node(
                 "global_planner_node",
-                [_resolve_node_paths(_node_params(data, "global_planner_node"), ("map_file",)),
+                [_global_planner_params(data),
                  use_sim_time,
                  {"enabled": True}],
             )
@@ -954,7 +986,7 @@ def _make_stack(context, *args, **kwargs):
         actions.append(
             _worker_node(
                 "goal_pose_to_nav2_action_node",
-                [_node_params(data, "goal_pose_to_nav2_action_node"), use_sim_time],
+                [_goal_pose_to_nav2_action_params(data), use_sim_time],
             )
         )
         actions.append(

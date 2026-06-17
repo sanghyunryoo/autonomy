@@ -8,6 +8,8 @@ robot:
   base_footprint_link: base_footprint
   base_stabilized_link: base_stabilized
   lidar_link: lidar_link
+  map_frame: map
+  odom_frame: odom
 
 operation_modes:
   drive:
@@ -562,7 +564,6 @@ point_lio:
     simulation_config_file: velody16.yaml
     lidar_topic_real: /point_lio/lidar
     imu_topic_real: /livox/imu
-    odom_frame_id: map
     preprocess_lidar_type_real: 2
     preprocess_scan_line_real: 4
     preprocess_timestamp_unit_real: 0

@@ -28,6 +28,7 @@ public:
     declare_parameter<std::string>("goal_pose_topic", "/goal_pose");
     declare_parameter<std::string>("navigate_to_pose_action", "navigate_to_pose");
     declare_parameter<std::string>("behavior_tree", "");
+    declare_parameter<std::string>("default_frame_id", "map");
     declare_parameter<double>("server_wait_timeout_sec", 0.5);
     declare_parameter<double>("publish_rate_hz", 2.0);
     declare_parameter<bool>("respect_autonomy_mode", true);
@@ -36,6 +37,7 @@ public:
 
     enabled_ = get_parameter("enabled").as_bool();
     behavior_tree_ = get_parameter("behavior_tree").as_string();
+    default_frame_id_ = get_parameter("default_frame_id").as_string();
     server_wait_timeout_sec_ = std::max(0.0, get_parameter("server_wait_timeout_sec").as_double());
     respect_autonomy_mode_ = get_parameter("respect_autonomy_mode").as_bool();
     active_modes_ = get_parameter("active_modes").as_string_array();
@@ -97,7 +99,7 @@ private:
     NavigateToPose::Goal goal;
     goal.pose = pose;
     if (goal.pose.header.frame_id.empty()) {
-      goal.pose.header.frame_id = "map";
+      goal.pose.header.frame_id = default_frame_id_;
     }
     if (goal.pose.header.stamp.sec == 0 && goal.pose.header.stamp.nanosec == 0) {
       goal.pose.header.stamp = now();
@@ -158,6 +160,7 @@ private:
   bool autonomy_allows_goal_{false};
   double server_wait_timeout_sec_{0.5};
   std::string behavior_tree_;
+  std::string default_frame_id_{"map"};
   std::string last_status_{"waiting_for_goal_pose"};
   std::vector<std::string> active_modes_;
   std::size_t sent_goals_{0};

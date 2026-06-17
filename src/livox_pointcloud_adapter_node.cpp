@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include <builtin_interfaces/msg/time.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -30,6 +31,40 @@ bool hasField(const sensor_msgs::msg::PointCloud2 & cloud, const std::string & n
 std::size_t pointCount(const sensor_msgs::msg::PointCloud2 & cloud)
 {
   return static_cast<std::size_t>(cloud.width) * static_cast<std::size_t>(cloud.height);
+}
+
+double toSeconds(const builtin_interfaces::msg::Time & stamp)
+{
+  return stamp.sec + stamp.nanosec * 1.0e-9;
+}
+
+double normalizeTimestamp(const double raw_timestamp, const double header_time)
+{
+  if (!std::isfinite(raw_timestamp) || raw_timestamp <= 0.0) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  const double candidates[] = {
+    raw_timestamp,
+    raw_timestamp * 1.0e-3,
+    raw_timestamp * 1.0e-6,
+    raw_timestamp * 1.0e-9,
+  };
+  double best = std::numeric_limits<double>::quiet_NaN();
+  double best_error = std::numeric_limits<double>::infinity();
+  for (const auto candidate : candidates) {
+    const auto error = std::abs(candidate - header_time);
+    if (std::isfinite(candidate) && error < best_error) {
+      best = candidate;
+      best_error = error;
+    }
+  }
+  return best_error < 60.0 ? best : std::numeric_limits<double>::quiet_NaN();
+}
+
+bool saneTimestamp(const double timestamp, const double reference_time)
+{
+  return std::isfinite(timestamp) && timestamp > 0.0 && std::abs(timestamp - reference_time) < 60.0;
 }
 
 }  // namespace
@@ -94,20 +129,24 @@ private:
 
     std::vector<InputPoint> points;
     points.reserve(pointCount(*msg));
+    const double receive_time = now().seconds();
+    const double message_header_time = toSeconds(msg->header.stamp);
+    const double reference_time =
+      saneTimestamp(message_header_time, receive_time) ? message_header_time : receive_time;
     double scan_start_time = std::numeric_limits<double>::infinity();
 
     {
       sensor_msgs::PointCloud2ConstIterator<double> timestamp_it(*msg, "timestamp");
       const auto total = pointCount(*msg);
       for (std::size_t i = 0; i < total; ++i, ++timestamp_it) {
-        const auto timestamp = *timestamp_it;
+        const auto timestamp = normalizeTimestamp(*timestamp_it, reference_time);
         if (std::isfinite(timestamp) && timestamp > 0.0) {
           scan_start_time = std::min(scan_start_time, timestamp);
         }
       }
     }
     if (!std::isfinite(scan_start_time)) {
-      scan_start_time = msg->header.stamp.sec + msg->header.stamp.nanosec * 1.0e-9;
+      scan_start_time = reference_time;
     }
 
     sensor_msgs::PointCloud2ConstIterator<float> x_it(*msg, "x");
@@ -144,7 +183,8 @@ private:
       point.y = *y_it;
       point.z = *z_it;
       point.intensity = *intensity_it;
-      const auto offset = *timestamp_it - scan_start_time;
+      const auto timestamp = normalizeTimestamp(*timestamp_it, reference_time);
+      const auto offset = timestamp - scan_start_time;
       point.time = static_cast<float>(std::isfinite(offset) && offset >= 0.0 ? offset : 0.0);
       point.ring = line;
       points.push_back(point);
@@ -152,7 +192,8 @@ private:
 
     sensor_msgs::msg::PointCloud2 out;
     out.header = msg->header;
-    const auto scan_start_sec = static_cast<std::int32_t>(std::floor(scan_start_time));
+    const auto scan_start_sec = static_cast<std::int32_t>(
+      std::clamp(std::floor(scan_start_time), 0.0, static_cast<double>(std::numeric_limits<std::int32_t>::max())));
     const auto scan_start_nsec = static_cast<std::uint32_t>(
       std::clamp((scan_start_time - static_cast<double>(scan_start_sec)) * 1.0e9, 0.0, 999999999.0));
     out.header.stamp.sec = scan_start_sec;
