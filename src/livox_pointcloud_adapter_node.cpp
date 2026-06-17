@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -78,7 +79,7 @@ private:
     float y{0.0F};
     float z{0.0F};
     float intensity{0.0F};
-    double timestamp{0.0};
+    float time{0.0F};
     std::uint16_t ring{0U};
   };
 
@@ -93,6 +94,22 @@ private:
 
     std::vector<InputPoint> points;
     points.reserve(pointCount(*msg));
+    double scan_start_time = std::numeric_limits<double>::quiet_NaN();
+
+    {
+      sensor_msgs::PointCloud2ConstIterator<double> timestamp_it(*msg, "timestamp");
+      const auto total = pointCount(*msg);
+      for (std::size_t i = 0; i < total; ++i, ++timestamp_it) {
+        const auto timestamp = *timestamp_it;
+        if (std::isfinite(timestamp) && timestamp > 0.0) {
+          scan_start_time = timestamp;
+          break;
+        }
+      }
+    }
+    if (!std::isfinite(scan_start_time)) {
+      scan_start_time = msg->header.stamp.sec + msg->header.stamp.nanosec * 1.0e-9;
+    }
 
     sensor_msgs::PointCloud2ConstIterator<float> x_it(*msg, "x");
     sensor_msgs::PointCloud2ConstIterator<float> y_it(*msg, "y");
@@ -128,7 +145,8 @@ private:
       point.y = *y_it;
       point.z = *z_it;
       point.intensity = *intensity_it;
-      point.timestamp = *timestamp_it;
+      const auto offset = *timestamp_it - scan_start_time;
+      point.time = static_cast<float>(std::isfinite(offset) && offset >= 0.0 ? offset : 0.0);
       point.ring = line;
       points.push_back(point);
     }
@@ -150,7 +168,7 @@ private:
       "y", 1, sensor_msgs::msg::PointField::FLOAT32,
       "z", 1, sensor_msgs::msg::PointField::FLOAT32,
       "intensity", 1, sensor_msgs::msg::PointField::FLOAT32,
-      "timestamp", 1, sensor_msgs::msg::PointField::FLOAT64,
+      "time", 1, sensor_msgs::msg::PointField::FLOAT32,
       "ring", 1, sensor_msgs::msg::PointField::UINT16);
     modifier.resize(points.size());
 
@@ -158,7 +176,7 @@ private:
     sensor_msgs::PointCloud2Iterator<float> out_y(out, "y");
     sensor_msgs::PointCloud2Iterator<float> out_z(out, "z");
     sensor_msgs::PointCloud2Iterator<float> out_intensity(out, "intensity");
-    sensor_msgs::PointCloud2Iterator<double> out_timestamp(out, "timestamp");
+    sensor_msgs::PointCloud2Iterator<float> out_time(out, "time");
     sensor_msgs::PointCloud2Iterator<std::uint16_t> out_ring(out, "ring");
 
     for (const auto & point : points) {
@@ -166,13 +184,13 @@ private:
       *out_y = point.y;
       *out_z = point.z;
       *out_intensity = point.intensity;
-      *out_timestamp = point.timestamp;
+      *out_time = point.time;
       *out_ring = point.ring;
       ++out_x;
       ++out_y;
       ++out_z;
       ++out_intensity;
-      ++out_timestamp;
+      ++out_time;
       ++out_ring;
     }
 

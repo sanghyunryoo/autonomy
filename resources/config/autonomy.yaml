@@ -563,7 +563,7 @@ point_lio:
     lidar_topic_real: /point_lio/lidar
     imu_topic_real: /livox/imu
     odom_frame_id: map
-    preprocess_lidar_type_real: 4
+    preprocess_lidar_type_real: 2
     preprocess_scan_line_real: 4
     preprocess_timestamp_unit_real: 0
     use_imu_as_input: false
