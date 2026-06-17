@@ -49,11 +49,47 @@ def _resolve_node_paths(params, keys):
     return resolved
 
 
+def _robot_params(data):
+    params = data.get("robot", {})
+    return params if isinstance(params, dict) else {}
+
+
+def _robot_namespace(data):
+    return str(_robot_params(data).get("namespace", _robot_params(data).get("name", "f4"))).strip("/")
+
+
+def _robot_frame_prefix(data):
+    params = _robot_params(data)
+    prefix = str(params.get("frame_prefix", "")).strip("/")
+    if not prefix:
+        prefix = _robot_namespace(data)
+    return f"{prefix}/" if prefix else ""
+
+
+def _robot_link(data, key, default):
+    return str(_robot_params(data).get(key, default)).strip().lstrip("/")
+
+
+def _robot_frame(data, link_key, default_link):
+    link = _robot_link(data, link_key, default_link)
+    if "/" in link:
+        return link
+    return _robot_frame_prefix(data) + link
+
+
+def _robot_sim_topic_prefix(data):
+    params = _robot_params(data)
+    default = f"/robot_{_robot_namespace(data)}"
+    return str(params.get("simulation_topic_prefix", default)).rstrip("/")
+
+
 def _robot_state_publisher_node(data, use_sim_time):
     params = _node_params(data, "robot_state_publisher") or {}
     if not _parse_bool(params.pop("enabled", True), default=True):
         return None
-    urdf_path = _resolve_package_path(params.pop("urdf_path", "src/autonomy/resources/urdf/f16.urdf"))
+    robot = _robot_params(data)
+    urdf_path = _resolve_package_path(params.pop("urdf_path", robot.get("urdf_path", "src/autonomy/resources/urdf/f4.urdf")))
+    params["frame_prefix"] = str(params.get("frame_prefix", _robot_frame_prefix(data)))
     with open(urdf_path, "r", encoding="utf-8") as urdf_file:
         robot_description = urdf_file.read()
     return _worker_node(
@@ -105,12 +141,23 @@ def _lidar_params(data):
 
 def _lidar_tf_nodes(data, use_sim_time):
     params = _lidar_params(data)
+    nodes = []
+    base_alias = _identity_static_tf_node(
+        params.get("robot_base_footprint_frame", _robot_frame(data, "base_footprint_link", "base_footprint")),
+        params.get("robot_base_frame", _robot_frame(data, "base_link", "base_link")),
+        use_sim_time,
+        name_prefix="static_tf_robot_base",
+    )
+    if base_alias is not None:
+        nodes.append(base_alias)
     if not _parse_bool(params.get("publish_driver_frame_alias", True), default=True):
-        return []
-    parent = params.get("robot_lidar_frame", "4w4l/lidar_link")
+        return nodes
+    parent = params.get("robot_lidar_frame", _robot_frame(data, "lidar_link", "lidar_link"))
     child = params.get("driver_frame", "")
     node = _identity_static_tf_node(parent, child, use_sim_time, name_prefix="static_tf_lidar")
-    return [] if node is None else [node]
+    if node is not None:
+        nodes.append(node)
+    return nodes
 
 
 def _frame_alias_static_tf_nodes(data, space, use_sim_time):
@@ -327,13 +374,27 @@ def _point_lio_actions(data, simulation, use_sim_time):
     lidar_topic = params.get("lidar_topic_simulation" if simulation else "lidar_topic_real")
     if not lidar_topic:
         lidar_topic = lidar_params.get("pointcloud_topic_simulation" if simulation else "pointcloud_topic")
+    if simulation and not lidar_topic:
+        lidar_topic = f"{_robot_sim_topic_prefix(data)}/livox/lidar"
     imu_topic = params.get("imu_topic_simulation" if simulation else "imu_topic_real")
     if not imu_topic:
         imu_topic = lidar_params.get("imu_topic_simulation" if simulation else "imu_topic")
+    if simulation and not imu_topic:
+        imu_topic = f"{_robot_sim_topic_prefix(data)}/imu"
     overrides = {
         "odom_header_frame_id": str(params.get("odom_frame_id", "map")),
-        "odom_child_frame_id": str(params.get("base_frame_id", "4w4l/base_footprint")),
+        "odom_child_frame_id": str(params.get("base_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint"))),
         "use_sim_time": simulation,
+        "use_imu_as_input": _parse_bool(params.get("use_imu_as_input", False), default=False),
+        "prop_at_freq_of_imu": _parse_bool(params.get("prop_at_freq_of_imu", True), default=True),
+        "check_satu": _parse_bool(params.get("check_satu", True), default=True),
+        "init_map_size": int(params.get("init_map_size", 10)),
+        "point_filter_num": int(params.get("point_filter_num", 3)),
+        "space_down_sample": _parse_bool(params.get("space_down_sample", True), default=True),
+        "filter_size_surf": float(params.get("filter_size_surf", 0.5)),
+        "filter_size_map": float(params.get("filter_size_map", 0.5)),
+        "cube_side_length": float(params.get("cube_side_length", 1000.0)),
+        "runtime_pos_log_enable": _parse_bool(params.get("runtime_pos_log_enable", False), default=False),
     }
     if lidar_topic:
         overrides["common.lid_topic"] = str(lidar_topic)
@@ -365,7 +426,7 @@ def _nav2_actions(data, simulation):
     if not launch_path.exists():
         return [LogInfo(msg=f"nav2: launch file not found: {launch_path}")]
 
-    params_file = _resolve_package_path(params.get("params_file", "resources/config/nav2_point_lio.yaml"))
+    params_file = _nav2_params_file(data, params)
     launch_arguments = {
         "use_sim_time": "true" if simulation else "false",
         "params_file": params_file,
@@ -380,6 +441,30 @@ def _nav2_actions(data, simulation):
             launch_arguments=launch_arguments.items(),
         )
     ]
+
+
+def _nav2_params_file(data, nav2_params):
+    source = _resolve_package_path(nav2_params.get("params_file", "resources/config/nav2_point_lio.yaml"))
+    with open(source, "r", encoding="utf-8") as stream:
+        params = yaml.safe_load(stream) or {}
+    base_frame = _robot_frame(data, "base_footprint_link", "base_footprint")
+    for node_name in ("bt_navigator", "controller_server", "behavior_server"):
+        node_params = params.get(node_name, {}).get("ros__parameters", {})
+        if isinstance(node_params, dict):
+            node_params["robot_base_frame"] = base_frame
+    for costmap_name in ("local_costmap", "global_costmap"):
+        node_params = params.get(costmap_name, {}).get(costmap_name, {}).get("ros__parameters", {})
+        if isinstance(node_params, dict):
+            node_params["robot_base_frame"] = base_frame
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix="autonomy_nav2_",
+        suffix=".yaml",
+        delete=False,
+    ) as config_file:
+        yaml.safe_dump(params, config_file, sort_keys=False)
+        return config_file.name
 
 
 def _livox_driver_actions(data, use_sim_time):
@@ -538,8 +623,8 @@ def _frame_prefix_from_target(target_frame):
 
 def _frame_prefix(data):
     params = data.get("pointcloud_merge_node", {}).get("ros__parameters", {})
-    target_frame = str(params.get("target_frame", "base_link"))
-    default_prefix = _frame_prefix_from_target(target_frame)
+    target_frame = str(params.get("target_frame", _robot_frame(data, "base_link", "base_link")))
+    default_prefix = _frame_prefix_from_target(target_frame) or _robot_frame_prefix(data)
     return str(params.get("frame_prefix", params.get("static_tf_frame_prefix", default_prefix)))
 
 
@@ -560,9 +645,9 @@ def _topic_from_binding(binding, keys, default):
     return default
 
 
-def _camera_base_topic(binding, space):
+def _camera_base_topic(data, binding, space):
     camera_name = str(binding.get("camera_name", "adas_camera")).strip("/")
-    return f"/robot_4w4l/{camera_name}" if space == "simulation" else f"/{camera_name}"
+    return f"{_robot_sim_topic_prefix(data)}/{camera_name}" if space == "simulation" else f"/{camera_name}"
 
 
 def _merge_params(data, space):
@@ -570,6 +655,7 @@ def _merge_params(data, space):
     params.pop("static_tf_frame_prefix", None)
     params.pop("urdf_path", None)
     prefix = str(params.pop("frame_prefix", _frame_prefix(data)))
+    params["target_frame"] = str(params.get("target_frame", _robot_frame(data, "base_link", "base_link")))
 
     camera_names = []
     cameras = {}
@@ -579,11 +665,12 @@ def _merge_params(data, space):
         if not _parse_bool(binding.get("enabled", True), default=True):
             continue
         role = str(binding["role"])
+        base = _camera_base_topic(data, binding, space)
         camera_names.append(role)
         cameras[role] = {
             "enabled": True,
-            "depth_topic": str(binding.get("depth_topic", f"/{role}/depth/image_rect")),
-            "camera_info_topic": str(binding.get("camera_info_topic", f"/{role}/depth/camera_info")),
+            "depth_topic": str(binding.get("depth_topic", f"{base}/depth/image_rect_raw")),
+            "camera_info_topic": str(binding.get("camera_info_topic", f"{base}/depth/camera_info")),
             "mount_frame": _merge_frame(binding.get("mount_frame", ""), prefix),
             "optical_frame": _merge_frame(binding.get("optical_frame", ""), prefix),
         }
@@ -619,15 +706,36 @@ def _imu_stabilized_params(data, space):
         binding = _front_binding(data, space)
     except RuntimeError:
         binding = {}
-    imu_topic = str(binding.get("imu_topic", params.get("imu_topic", "")))
+    default_imu = f"{_camera_base_topic(data, binding, space)}/imu" if binding else params.get("imu_topic", "")
+    imu_topic = str(binding.get("imu_topic", params.get("imu_topic", default_imu)))
     if imu_topic:
         params["imu_topic"] = imu_topic
+    params["base_frame_id"] = str(params.get("base_frame_id", _robot_frame(data, "base_link", "base_link")))
+    params["stabilized_frame_id"] = str(params.get("stabilized_frame_id", _robot_frame(data, "base_stabilized_link", "base_stabilized")))
+    return params
+
+
+def _localization_pose_adapter_params(data):
+    params = _node_params(data, "localization_pose_adapter_node")
+    params["base_frame_id"] = str(params.get("base_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint")))
+    return params
+
+
+def _cmd_vel_to_command_user_params(data):
+    params = _node_params(data, "cmd_vel_to_command_user_node")
+    params["base_frame_id"] = str(params.get("base_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint")))
+    return params
+
+
+def _rl_local_planner_params(data):
+    params = _node_params(data, "rl_local_planner_node")
+    params["costmap_frame_id"] = str(params.get("costmap_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint")))
     return params
 
 
 def _ai_topic_params(data, space):
     binding = _adas_binding(data, space)
-    base = _camera_base_topic(binding, space)
+    base = _camera_base_topic(data, binding, space)
     return {
         "image_topic": _topic_from_binding(
             binding,
@@ -780,7 +888,7 @@ def _make_stack(context, *args, **kwargs):
     actions.extend(_point_lio_actions(data, simulation, use_sim_time))
     actions.append(_worker_node(
         "localization_pose_adapter_node",
-        [_node_params(data, "localization_pose_adapter_node"), use_sim_time],
+        [_localization_pose_adapter_params(data), use_sim_time],
         additional_env=dds_env,
     ))
 
@@ -798,7 +906,7 @@ def _make_stack(context, *args, **kwargs):
         actions.append(
             _worker_node(
                 "rl_local_planner_node",
-                [_node_params(data, "rl_local_planner_node"), use_sim_time, {"enabled": True}],
+                [_rl_local_planner_params(data), use_sim_time, {"enabled": True}],
             )
         )
 
@@ -823,7 +931,7 @@ def _make_stack(context, *args, **kwargs):
         actions.append(
             _worker_node(
                 "cmd_vel_to_command_user_node",
-                [_node_params(data, "cmd_vel_to_command_user_node"), use_sim_time],
+                [_cmd_vel_to_command_user_params(data), use_sim_time],
             )
         )
         actions.extend(_rviz_actions(data, use_sim_time, launch_rviz))

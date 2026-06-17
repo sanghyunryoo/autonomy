@@ -165,7 +165,7 @@ add_executable(point_lio_monitor_node
   src/point_lio_monitor_node.cpp
 )
 target_include_directories(point_lio_monitor_node PRIVATE include)
-ament_target_dependencies(point_lio_monitor_node nav_msgs rclcpp std_msgs)
+ament_target_dependencies(point_lio_monitor_node nav_msgs rclcpp sensor_msgs std_msgs)
 
 add_executable(point_lio_map_saver_node
   src/point_lio_map_saver_node.cpp
