@@ -132,6 +132,18 @@ robot_state_publisher:
     urdf_path: src/autonomy/resources/urdf/f4.urdf
     frame_prefix: 4w4l/
 
+lidar:
+  ros__parameters:
+    robot_base_frame: 4w4l/base_link
+    robot_lidar_frame: 4w4l/lidar_link
+    urdf_link_name: lidar_link
+    driver_frame: livox_frame
+    publish_driver_frame_alias: true
+    pointcloud_topic: /livox/lidar
+    imu_topic: /livox/imu
+    pointcloud_topic_simulation: /robot_4w4l/livox/lidar
+    imu_topic_simulation: /robot_4w4l/imu
+
 pointcloud_merge_node:
   ros__parameters:
     target_frame: 4w4l/base_link
@@ -305,8 +317,8 @@ autonomy_manager:
     publish_rate_hz: 10.0
     managed_nodes:
       idle: []
-      drive: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node]
-      adas: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, rl_local_planner_node]
+      drive: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node]
+      adas: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, rl_local_planner_node]
       fsd: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, livox_monitor_node, point_lio_monitor_node, localization_pose_adapter_node, rl_local_planner_node, global_planner_node, cmd_vel_to_command_user_node]
       tracking: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
       mapping: [livox_monitor_node, point_lio_monitor_node, point_lio_map_saver_node]
@@ -468,7 +480,7 @@ livox_monitor_node:
     enabled: true
     simulation: false
     pointcloud_topic: /livox/lidar
-    required_frame_contains: ""
+    required_frame_contains: livox
     detection_timeout_sec: 1.0
     min_points: 1
     publish_rate_hz: 5.0

@@ -158,14 +158,23 @@ public:
       std::vector<std::string>{});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.drive",
-      {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node"});
+      {"realsense_usb_mapper", "livox_monitor_node", "pointcloud_merge_node", "elevation_mapping_node"});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.adas",
-      {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node", "point_lio_monitor_node", "localization_pose_adapter_node"});
+      {
+        "realsense_usb_mapper",
+        "livox_monitor_node",
+        "pointcloud_merge_node",
+        "elevation_mapping_node",
+        "point_lio_monitor_node",
+        "localization_pose_adapter_node",
+        "rl_local_planner_node",
+      });
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.fsd",
       {
         "realsense_usb_mapper",
+        "livox_monitor_node",
         "pointcloud_merge_node",
         "elevation_mapping_node",
         "point_lio_monitor_node",

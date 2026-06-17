@@ -78,6 +78,40 @@ def _static_tf_node(parent_frame, child_frame, use_sim_time):
     )
 
 
+def _identity_static_tf_node(parent_frame, child_frame, use_sim_time, name_prefix="static_tf_alias"):
+    parent = str(parent_frame or "").strip().lstrip("/")
+    child = str(child_frame or "").strip().lstrip("/")
+    if not parent or not child or parent == child:
+        return None
+    return _worker_node(
+        "static_transform_publisher",
+        [use_sim_time],
+        name=f"{name_prefix}_{child.replace('/', '_')}",
+        package="tf2_ros",
+        arguments=[
+            "0", "0", "0",
+            "0", "0", "0",
+            parent,
+            child,
+        ],
+    )
+
+
+def _lidar_params(data):
+    params = _node_params(data, "lidar") or {}
+    return params if isinstance(params, dict) else {}
+
+
+def _lidar_tf_nodes(data, use_sim_time):
+    params = _lidar_params(data)
+    if not _parse_bool(params.get("publish_driver_frame_alias", True), default=True):
+        return []
+    parent = params.get("robot_lidar_frame", "4w4l/lidar_link")
+    child = params.get("driver_frame", "")
+    node = _identity_static_tf_node(parent, child, use_sim_time, name_prefix="static_tf_lidar")
+    return [] if node is None else [node]
+
+
 def _frame_alias_static_tf_nodes(data, space, use_sim_time):
     prefix = _frame_prefix(data)
     if not prefix:
@@ -288,8 +322,13 @@ def _point_lio_actions(data, simulation, use_sim_time):
     elif not Path(config_file).is_absolute() and "/" not in str(config_file):
         config_file = str(package_share / "config" / str(config_file))
 
+    lidar_params = _lidar_params(data)
     lidar_topic = params.get("lidar_topic_simulation" if simulation else "lidar_topic_real")
+    if not lidar_topic:
+        lidar_topic = lidar_params.get("pointcloud_topic_simulation" if simulation else "pointcloud_topic")
     imu_topic = params.get("imu_topic_simulation" if simulation else "imu_topic_real")
+    if not imu_topic:
+        imu_topic = lidar_params.get("imu_topic_simulation" if simulation else "imu_topic")
     overrides = {
         "odom_header_frame_id": str(params.get("odom_frame_id", "map")),
         "odom_child_frame_id": str(params.get("base_frame_id", "4w4l/base_footprint")),
@@ -538,14 +577,12 @@ def _ai_topic_params(data, space):
 def _managed_nodes(simulation, enable_nav2, enable_tracking):
     base = ["imu_stabilized_tf_node", "pointcloud_merge_node", "elevation_mapping_node"]
     if not simulation:
-        base = ["realsense_usb_mapper"] + base
+        base = ["realsense_usb_mapper", "livox_monitor_node"] + base
     point_lio_stack = ["point_lio_monitor_node", "localization_pose_adapter_node"]
     adas_stack = base + point_lio_stack + ["rl_local_planner_node"]
     fsd_stack = adas_stack + ["global_planner_node"]
     if enable_nav2:
         fsd_stack += ["cmd_vel_to_command_user_node"]
-    if not simulation:
-        fsd_stack = ["livox_monitor_node"] + fsd_stack
     mapping_stack = ["point_lio_monitor_node", "point_lio_map_saver_node"]
     if not simulation:
         mapping_stack = ["livox_monitor_node"] + mapping_stack
@@ -609,6 +646,7 @@ def _make_stack(context, *args, **kwargs):
     if robot_state_publisher is not None:
         actions.append(robot_state_publisher)
     actions.extend(_frame_alias_static_tf_nodes(data, space, use_sim_time))
+    actions.extend(_lidar_tf_nodes(data, use_sim_time))
 
     if not simulation:
         actions.append(_worker_node(
