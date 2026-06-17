@@ -126,6 +126,18 @@ dds_network:
   peer_ip: 192.168.20.1
   allow_multicast: true
 
+livox_network:
+  enabled: true
+  mode: auto
+  interface: ""          # Empty selects a connected wired interface.
+  host_ip: 192.168.1.50/24
+  gateway_ip: 192.168.1.1
+  scan_cidr: 192.168.1.0/24
+  lidar_ip: auto         # Set explicit IP to skip scan, e.g. 192.168.1.102.
+  serial_suffix: ""      # Optional: last serial digits; tries 192.168.1.1XX first.
+  config_output: /tmp/autonomy_livox_mid360_config.json
+  install_nmap_if_missing: false
+
 robot_state_publisher:
   ros__parameters:
     enabled: true
@@ -489,11 +501,16 @@ livox_driver:
   ros__parameters:
     enabled: true
     package: livox_ros_driver2
-    launch_file: rviz_MID360_launch.py
-    launch_arguments:
-      rviz: false
-      use_rviz: false
-      launch_rviz: false
+    executable: livox_ros_driver2_node
+    xfer_format: 0
+    multi_topic: 0
+    data_src: 0
+    publish_freq: 10.0
+    output_data_type: 0
+    frame_id: livox_frame
+    lvx_file_path: /tmp/autonomy_mid360.lvx
+    cmdline_input_bd_code: livox0000000001
+    user_config_path: ""
 
 point_lio_monitor_node:
   ros__parameters:

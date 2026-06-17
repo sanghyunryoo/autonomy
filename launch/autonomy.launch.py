@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import tempfile
 from xml.sax.saxutils import escape
 
@@ -381,6 +382,49 @@ def _nav2_actions(data, simulation):
     ]
 
 
+def _livox_driver_actions(data, use_sim_time):
+    params = _node_params(data, "livox_driver") or {}
+    if not _parse_bool(params.get("enabled", True), default=True):
+        return []
+    try:
+        get_package_share_directory(str(params.get("package", "livox_ros_driver2")))
+    except Exception as exc:
+        return [LogInfo(msg=f"livox_driver: package not found, skipping Livox driver ({exc})")]
+
+    user_config_path = (
+        os.environ.get("AUTONOMY_LIVOX_CONFIG_PATH")
+        or _resolve_package_path(params.get("user_config_path", ""))
+    )
+    if not user_config_path:
+        network_params = data.get("livox_network", {}) or {}
+        candidate = str(network_params.get("config_output", "")).strip()
+        if candidate and Path(candidate).expanduser().exists():
+            user_config_path = str(Path(candidate).expanduser())
+    if not user_config_path:
+        return [LogInfo(msg="livox_driver: user_config_path is empty; run scripts/launch.sh or set AUTONOMY_LIVOX_CONFIG_PATH")]
+
+    driver_params = {
+        "xfer_format": int(params.get("xfer_format", 0)),
+        "multi_topic": int(params.get("multi_topic", 0)),
+        "data_src": int(params.get("data_src", 0)),
+        "publish_freq": float(params.get("publish_freq", 10.0)),
+        "output_data_type": int(params.get("output_data_type", 0)),
+        "frame_id": str(params.get("frame_id", "livox_frame")),
+        "lvx_file_path": str(params.get("lvx_file_path", "/tmp/autonomy_mid360.lvx")),
+        "user_config_path": str(user_config_path),
+        "cmdline_input_bd_code": str(params.get("cmdline_input_bd_code", "livox0000000001")),
+    }
+    return [
+        _worker_node(
+            str(params.get("executable", "livox_ros_driver2_node")),
+            [driver_params, use_sim_time],
+            name="livox_lidar_publisher",
+            package=str(params.get("package", "livox_ros_driver2")),
+            output="screen",
+        )
+    ]
+
+
 def _binding_space(simulation):
     return "simulation" if _parse_bool(simulation, default=False) else "real"
 
@@ -683,7 +727,7 @@ def _make_stack(context, *args, **kwargs):
             "livox_monitor_node",
             [_node_params(data, "livox_monitor_node"), use_sim_time, {"simulation": False}],
         ))
-        actions.extend(_external_launch(data, "livox_driver", "livox_ros_driver2", "rviz_MID360_launch.py"))
+        actions.extend(_livox_driver_actions(data, use_sim_time))
 
     actions.extend([
         _worker_node(

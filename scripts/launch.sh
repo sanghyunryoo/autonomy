@@ -121,6 +121,41 @@ print(value("peer_ip", value("remote_ip")))
 PY
 }
 
+read_livox_network_config() {
+  local config_file="$1"
+  /usr/bin/python3 - "${config_file}" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], "r", encoding="utf-8") as stream:
+    data = yaml.safe_load(stream) or {}
+
+network = data.get("livox_network") or {}
+if not isinstance(network, dict):
+    network = {}
+
+driver = (((data.get("livox_driver") or {}).get("ros__parameters")) or {})
+lidar = (((data.get("lidar") or {}).get("ros__parameters")) or {})
+
+def value(source, name, default=""):
+    item = source.get(name, default)
+    return "" if item is None else str(item).strip()
+
+print(value(network, "enabled", "true").lower())
+print(value(network, "mode", "auto").lower())
+print(value(network, "interface"))
+print(value(network, "host_ip", "192.168.1.50/24"))
+print(value(network, "gateway_ip", "192.168.1.1"))
+print(value(network, "scan_cidr", "192.168.1.0/24"))
+print(value(network, "lidar_ip", "auto"))
+print(value(network, "serial_suffix"))
+print(value(network, "config_output", "/tmp/autonomy_livox_mid360_config.json"))
+print(value(network, "install_nmap_if_missing", "false").lower())
+print(value(lidar, "driver_frame", value(driver, "frame_id", "livox_frame")))
+PY
+}
+
 read_dds_thread_priority() {
   local config_file="$1"
   /usr/bin/python3 - "${config_file}" <<'PY'
@@ -218,6 +253,12 @@ interface_has_ip() {
   ip -o -4 addr show dev "${iface}" | awk '{print $4}' | cut -d/ -f1 | grep -Fxq "${local_host}"
 }
 
+interface_has_cidr() {
+  local iface="$1"
+  local cidr="$2"
+  ip -o -4 addr show dev "${iface}" | awk '{print $4}' | grep -Fxq "${cidr}"
+}
+
 find_wired_interface() {
   local local_host="$1"
   local candidates=()
@@ -257,6 +298,16 @@ find_wired_interface() {
   fi
   echo "Set dds_network.interface in the autonomy config." >&2
   return 1
+}
+
+find_livox_interface() {
+  local requested_iface="$1"
+  local local_host="$2"
+  if [[ -n "${requested_iface}" ]]; then
+    printf '%s\n' "${requested_iface}"
+    return
+  fi
+  find_wired_interface "${local_host}"
 }
 
 configure_wired_dds_network() {
@@ -312,7 +363,254 @@ configure_wired_dds_network() {
   sudo ip addr add "${dds_local_ip}" dev "${dds_interface}"
 }
 
+is_simulation_launch() {
+  local arg
+  for arg in "${raw_launch_args[@]}"; do
+    case "${arg}" in
+      simulation:=true|simulation:=1|simulation:=yes|simulation:=on)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+bool_enabled() {
+  case "${1,,}" in
+    true|1|yes|y|on|auto)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+last_two_digits() {
+  local text="$1"
+  local digits
+  digits="$(printf '%s' "${text}" | tr -cd '0-9')"
+  if [[ "${#digits}" -ge 2 ]]; then
+    printf '%s\n' "${digits: -2}"
+  fi
+}
+
+candidate_ip_from_suffix() {
+  local cidr="$1"
+  local suffix="$2"
+  local octet
+  octet="$(last_two_digits "${suffix}")"
+  [[ -n "${octet}" ]] || return 1
+  octet="$((10#${octet}))"
+  local prefix="${cidr%.*/*}"
+  printf '%s.%d\n' "${prefix}" "$((100 + octet))"
+}
+
+probe_host() {
+  local ip_addr="$1"
+  ping -c 1 -W 1 "${ip_addr}" >/dev/null 2>&1
+}
+
+scan_livox_candidates() {
+  local iface="$1"
+  local cidr="$2"
+  local host_ip="$3"
+  local gateway_ip="$4"
+  local serial_suffix="$5"
+  local candidate
+  local seen=" "
+
+  if [[ -n "${serial_suffix}" ]]; then
+    candidate="$(candidate_ip_from_suffix "${cidr}" "${serial_suffix}" || true)"
+    if [[ -n "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      seen+=" ${candidate} "
+    fi
+  fi
+
+  for candidate in "${gateway_ip}" 192.168.1.12 192.168.1.102 192.168.1.3; do
+    [[ -n "${candidate}" ]] || continue
+    [[ "${seen}" == *" ${candidate} "* ]] && continue
+    printf '%s\n' "${candidate}"
+    seen+=" ${candidate} "
+  done
+
+  ip neigh show dev "${iface}" 2>/dev/null |
+    awk '{print $1}' |
+    grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' |
+    while read -r candidate; do
+      [[ "${candidate}" == "${host_ip}" ]] && continue
+      [[ "${seen}" == *" ${candidate} "* ]] && continue
+      printf '%s\n' "${candidate}"
+      seen+=" ${candidate} "
+    done
+
+  if command -v nmap >/dev/null 2>&1; then
+    nmap -n -sn -e "${iface}" "${cidr}" 2>/dev/null |
+      awk '/Nmap scan report for / {print $NF}' |
+      while read -r candidate; do
+        [[ "${candidate}" == "${host_ip}" ]] && continue
+        [[ "${seen}" == *" ${candidate} "* ]] && continue
+        printf '%s\n' "${candidate}"
+        seen+=" ${candidate} "
+      done
+  fi
+}
+
+discover_livox_ip() {
+  local iface="$1"
+  local cidr="$2"
+  local host_ip="$3"
+  local gateway_ip="$4"
+  local explicit_ip="$5"
+  local serial_suffix="$6"
+
+  if [[ -n "${explicit_ip}" && "${explicit_ip}" != "auto" ]]; then
+    printf '%s\n' "${explicit_ip}"
+    return
+  fi
+
+  local candidate
+  while read -r candidate; do
+    [[ -n "${candidate}" ]] || continue
+    if probe_host "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return
+    fi
+  done < <(scan_livox_candidates "${iface}" "${cidr}" "${host_ip}" "${gateway_ip}" "${serial_suffix}")
+
+  return 1
+}
+
+write_livox_mid360_config() {
+  local output_path="$1"
+  local host_ip="$2"
+  local lidar_ip="$3"
+  local frame_id="$4"
+  mkdir -p "$(dirname "${output_path}")"
+  /usr/bin/python3 - "${output_path}" "${host_ip}" "${lidar_ip}" "${frame_id}" <<'PY'
+import json
+import sys
+
+output_path, host_ip, lidar_ip, frame_id = sys.argv[1:5]
+config = {
+    "lidar_summary_info": {"lidar_type": 8},
+    "MID360": {
+        "lidar_net_info": {
+            "cmd_data_port": 56100,
+            "push_msg_port": 56200,
+            "point_data_port": 56300,
+            "imu_data_port": 56400,
+            "log_data_port": 56500,
+        },
+        "host_net_info": {
+            "cmd_data_ip": host_ip,
+            "cmd_data_port": 56101,
+            "push_msg_ip": host_ip,
+            "push_msg_port": 56201,
+            "point_data_ip": host_ip,
+            "point_data_port": 56301,
+            "imu_data_ip": host_ip,
+            "imu_data_port": 56401,
+            "log_data_ip": "",
+            "log_data_port": 56501,
+        },
+    },
+    "lidar_configs": [
+        {
+            "ip": lidar_ip,
+            "pcl_data_type": 1,
+            "pattern_mode": 0,
+            "extrinsic_parameter": {
+                "roll": 0.0,
+                "pitch": 0.0,
+                "yaw": 0.0,
+                "x": 0,
+                "y": 0,
+                "z": 0,
+            },
+        }
+    ],
+}
+with open(output_path, "w", encoding="utf-8") as stream:
+    json.dump(config, stream, indent=2)
+    stream.write("\n")
+print(output_path)
+PY
+}
+
+configure_livox_network() {
+  if is_simulation_launch; then
+    return
+  fi
+
+  local config_file
+  config_file="$(resolve_autonomy_config)"
+  [[ -f "${config_file}" ]] || return 0
+
+  local enabled mode iface host_cidr gateway_ip scan_cidr lidar_ip serial_suffix output_path install_nmap frame_id
+  mapfile -t livox_config < <(read_livox_network_config "${config_file}")
+  enabled="${livox_config[0]:-true}"
+  mode="${livox_config[1]:-auto}"
+  iface="${livox_config[2]:-}"
+  host_cidr="${livox_config[3]:-192.168.1.50/24}"
+  gateway_ip="${livox_config[4]:-192.168.1.1}"
+  scan_cidr="${livox_config[5]:-192.168.1.0/24}"
+  lidar_ip="${livox_config[6]:-auto}"
+  serial_suffix="${livox_config[7]:-}"
+  output_path="${livox_config[8]:-/tmp/autonomy_livox_mid360_config.json}"
+  install_nmap="${livox_config[9]:-false}"
+  frame_id="${livox_config[10]:-livox_frame}"
+
+  bool_enabled "${enabled}" || return
+  [[ "${mode}" == "auto" || "${mode}" == "wired" || "${mode}" == "ethernet" ]] || return
+
+  if ! command -v ip >/dev/null 2>&1; then
+    echo "warning: 'ip' command not found; skipping Livox network auto setup." >&2
+    return
+  fi
+
+  if [[ "${install_nmap}" == "true" ]]; then
+    if ! command -v nmap >/dev/null 2>&1; then
+      echo "Installing nmap for Livox discovery"
+      sudo apt-get update
+      sudo apt-get install -y nmap
+    fi
+  fi
+
+  local host_ip="${host_cidr%%/*}"
+  [[ "${host_cidr}" == */* ]] || host_cidr="${host_cidr}/24"
+  iface="$(find_livox_interface "${iface}" "${host_ip}")"
+  if [[ ! -d "/sys/class/net/${iface}" ]]; then
+    echo "warning: Livox network interface does not exist: ${iface}" >&2
+    return
+  fi
+
+  sudo ip link set "${iface}" up
+  if ! interface_has_cidr "${iface}" "${host_cidr}"; then
+    if ! interface_has_ip "${iface}" "${host_ip}"; then
+      echo "Configuring Livox MID360 host network: ${iface} ${host_cidr}"
+      sudo ip addr add "${host_cidr}" dev "${iface}"
+    fi
+  fi
+
+  local detected_lidar_ip
+  if detected_lidar_ip="$(discover_livox_ip "${iface}" "${scan_cidr}" "${host_ip}" "${gateway_ip}" "${lidar_ip}" "${serial_suffix}")"; then
+    lidar_ip="${detected_lidar_ip}"
+  else
+    echo "warning: could not auto-detect Livox MID360 IP on ${iface} ${scan_cidr}; using ${gateway_ip}" >&2
+    lidar_ip="${gateway_ip}"
+  fi
+
+  write_livox_mid360_config "${output_path}" "${host_ip}" "${lidar_ip}" "${frame_id}" >/dev/null
+  export AUTONOMY_LIVOX_CONFIG_PATH="${output_path}"
+  export AUTONOMY_LIVOX_HOST_IP="${host_ip}"
+  export AUTONOMY_LIVOX_LIDAR_IP="${lidar_ip}"
+  echo "Livox MID360 network: iface=${iface} host=${host_ip} lidar=${lidar_ip} config=${output_path}"
+}
+
 configure_wired_dds_network
+configure_livox_network
 
 resolved_autonomy_config="$(resolve_autonomy_config)"
 clear_realtime_permissions_when_disabled "${resolved_autonomy_config}"
