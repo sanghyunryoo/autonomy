@@ -3,6 +3,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -11,6 +12,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
+#include "autonomy/msg/autonomy_state.hpp"
 #include "core/msg/command_user.hpp"
 
 namespace autonomy
@@ -29,11 +31,16 @@ public:
     declare_parameter<double>("publish_rate_hz", 50.0);
     declare_parameter<double>("cmd_timeout_sec", 0.25);
     declare_parameter<bool>("integrate_commanded_pose", true);
+    declare_parameter<bool>("respect_autonomy_mode", true);
+    declare_parameter<std::string>("autonomy_status_topic", "/autonomy_manager/status");
+    declare_parameter<std::vector<std::string>>("active_modes", {"ADAS", "FSD"});
 
     odom_frame_id_ = get_parameter("odom_frame_id").as_string();
     base_frame_id_ = get_parameter("base_frame_id").as_string();
     cmd_timeout_sec_ = std::max(0.0, get_parameter("cmd_timeout_sec").as_double());
     integrate_pose_ = get_parameter("integrate_commanded_pose").as_bool();
+    respect_autonomy_mode_ = get_parameter("respect_autonomy_mode").as_bool();
+    active_modes_ = get_parameter("active_modes").as_string_array();
 
     command_pub_ = create_publisher<core::msg::CommandUser>(
       get_parameter("command_user_topic").as_string(),
@@ -49,6 +56,16 @@ public:
         last_cmd_time_ = now();
         has_cmd_ = true;
       });
+    autonomy_sub_ = create_subscription<autonomy::msg::AutonomyState>(
+      get_parameter("autonomy_status_topic").as_string(),
+      10,
+      [this](autonomy::msg::AutonomyState::SharedPtr msg) {
+        autonomy_allows_command_ =
+          !msg->estop_active &&
+          !msg->error_active &&
+          std::find(active_modes_.begin(), active_modes_.end(), msg->mode_name) != active_modes_.end();
+        has_autonomy_state_ = true;
+      });
 
     last_tick_time_ = now();
     const auto period = std::chrono::duration<double>(
@@ -62,6 +79,13 @@ private:
   void tick()
   {
     const auto time_now = now();
+    if (!modeAllowsCommand()) {
+      std_msgs::msg::String heartbeat;
+      heartbeat.data = "standby:autonomy_blocked";
+      heartbeat_pub_->publish(heartbeat);
+      return;
+    }
+
     const double dt = std::max(0.0, (time_now - last_tick_time_).seconds());
     last_tick_time_ = time_now;
 
@@ -125,11 +149,23 @@ private:
     return !has_cmd_ || (cmd_timeout_sec_ > 0.0 && (time_now - last_cmd_time_).seconds() > cmd_timeout_sec_);
   }
 
+  bool modeAllowsCommand() const
+  {
+    if (!respect_autonomy_mode_) {
+      return true;
+    }
+    return has_autonomy_state_ && autonomy_allows_command_;
+  }
+
   std::string odom_frame_id_;
   std::string base_frame_id_;
   double cmd_timeout_sec_{0.25};
   bool integrate_pose_{true};
+  bool respect_autonomy_mode_{true};
+  bool has_autonomy_state_{false};
+  bool autonomy_allows_command_{false};
   bool has_cmd_{false};
+  std::vector<std::string> active_modes_;
   double x_{0.0};
   double y_{0.0};
   double yaw_{0.0};
@@ -137,6 +173,7 @@ private:
   rclcpp::Time last_tick_time_{0, 0, RCL_ROS_TIME};
   geometry_msgs::msg::Twist latest_cmd_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
+  rclcpp::Subscription<autonomy::msg::AutonomyState>::SharedPtr autonomy_sub_;
   rclcpp::Publisher<core::msg::CommandUser>::SharedPtr command_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr timer_;

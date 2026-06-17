@@ -425,6 +425,31 @@ def _livox_driver_actions(data, use_sim_time):
     ]
 
 
+def _rviz_actions(data, use_sim_time, launch_rviz=False):
+    params = _node_params(data, "rviz2") or {}
+    if not (_parse_bool(params.get("enabled", False), default=False) or launch_rviz):
+        return []
+    arguments = []
+    config_path = _resolve_package_path(params.get("config_path", ""))
+    if not config_path:
+        try:
+            config_path = str(Path(get_package_share_directory("nav2_bringup")) / "rviz" / "nav2_default_view.rviz")
+        except Exception:
+            config_path = ""
+    if config_path:
+        arguments = ["-d", str(config_path)]
+    return [
+        _worker_node(
+            "rviz2",
+            [use_sim_time],
+            name="rviz2",
+            package="rviz2",
+            output="screen",
+            arguments=arguments,
+        )
+    ]
+
+
 def _binding_space(simulation):
     return "simulation" if _parse_bool(simulation, default=False) else "real"
 
@@ -623,10 +648,18 @@ def _managed_nodes(simulation, enable_nav2, enable_tracking):
     if not simulation:
         base = ["realsense_usb_mapper", "livox_monitor_node"] + base
     point_lio_stack = ["point_lio_monitor_node", "localization_pose_adapter_node"]
-    adas_stack = base + point_lio_stack + ["rl_local_planner_node"]
-    fsd_stack = adas_stack + ["global_planner_node"]
+    adas_stack = base + point_lio_stack
     if enable_nav2:
-        fsd_stack += ["cmd_vel_to_command_user_node"]
+        adas_stack += ["global_planner_node", "goal_pose_to_nav2_action_node", "cmd_vel_to_command_user_node"]
+    else:
+        adas_stack += ["rl_local_planner_node"]
+    fsd_stack = list(adas_stack)
+    if "global_planner_node" not in fsd_stack:
+        fsd_stack += ["global_planner_node"]
+    if enable_nav2:
+        for node_name in ("goal_pose_to_nav2_action_node", "cmd_vel_to_command_user_node"):
+            if node_name not in fsd_stack:
+                fsd_stack.append(node_name)
     mapping_stack = ["point_lio_monitor_node", "point_lio_map_saver_node"]
     if not simulation:
         mapping_stack = ["livox_monitor_node"] + mapping_stack
@@ -669,6 +702,7 @@ def _make_stack(context, *args, **kwargs):
     config_file = LaunchConfiguration("autonomy_config").perform(context)
     simulation_text = LaunchConfiguration("simulation").perform(context)
     simulation = _parse_bool(simulation_text, default=False)
+    launch_rviz = _parse_bool(LaunchConfiguration("rviz").perform(context), default=False)
     map_dir = LaunchConfiguration("map_dir").perform(context)
     data = _load_yaml(config_file)
     dds_env = _dds_network_env(data)
@@ -676,7 +710,7 @@ def _make_stack(context, *args, **kwargs):
     use_sim_time = {"use_sim_time": LaunchConfiguration("simulation")}
     enable_local_stack = True
     enable_nav2 = _node_enabled(data, "nav2")
-    enable_rl_local_planner = enable_local_stack and _node_enabled(data, "rl_local_planner_node")
+    enable_rl_local_planner = enable_local_stack and _node_enabled(data, "rl_local_planner_node") and not enable_nav2
     enable_ai_detection = _adas_enabled(data, space) and _node_enabled(data, "ai_detection_node")
     enable_global_planner = enable_local_stack and _node_enabled(data, "global_planner_node")
     enable_tracking_follower = enable_ai_detection and _node_enabled(data, "tracking_follower_node")
@@ -778,10 +812,17 @@ def _make_stack(context, *args, **kwargs):
         actions.extend(_nav2_actions(data, simulation))
         actions.append(
             _worker_node(
+                "goal_pose_to_nav2_action_node",
+                [_node_params(data, "goal_pose_to_nav2_action_node"), use_sim_time],
+            )
+        )
+        actions.append(
+            _worker_node(
                 "cmd_vel_to_command_user_node",
                 [_node_params(data, "cmd_vel_to_command_user_node"), use_sim_time],
             )
         )
+        actions.extend(_rviz_actions(data, use_sim_time, launch_rviz))
 
     if enable_tracking_follower:
         actions.append(
@@ -825,6 +866,7 @@ def generate_launch_description():
             description="Single autonomy stack parameter file.",
         ),
         DeclareLaunchArgument("simulation", default_value="false"),
+        DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument(
             "map_dir",
             default_value=str(package_share / "resources" / "map"),

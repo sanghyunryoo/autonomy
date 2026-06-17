@@ -15,7 +15,9 @@
   <depend>cyclonedds</depend>
   <depend>message_filters</depend>
   <depend>nav_msgs</depend>
+  <depend>nav2_msgs</depend>
   <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
@@ -37,6 +39,7 @@
   <exec_depend>nav2_navfn_planner</exec_depend>
   <exec_depend>nav2_smoother</exec_depend>
   <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
   <exec_depend>dwb_core</exec_depend>
   <exec_depend>dwb_critics</exec_depend>
   <exec_depend>ament_index_python</exec_depend>

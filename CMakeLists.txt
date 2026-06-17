@@ -22,8 +22,10 @@ find_package(CycloneDDS REQUIRED CONFIG)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -193,11 +195,27 @@ ament_target_dependencies(
   tf2
   tf2_geometry_msgs
 )
+target_link_libraries(cmd_vel_to_command_user_node "${cpp_typesupport_target}")
+
+add_executable(goal_pose_to_nav2_action_node
+  src/goal_pose_to_nav2_action_node.cpp
+)
+target_include_directories(goal_pose_to_nav2_action_node PRIVATE include)
+ament_target_dependencies(
+  goal_pose_to_nav2_action_node
+  geometry_msgs
+  nav2_msgs
+  rclcpp
+  rclcpp_action
+  std_msgs
+)
+target_link_libraries(goal_pose_to_nav2_action_node "${cpp_typesupport_target}")
 
 install(TARGETS
   ai_detection_node
   autonomy_manager_node
   cmd_vel_to_command_user_node
+  goal_pose_to_nav2_action_node
   pointcloud_merge_node
   elevation_mapping_node
   global_planner_node

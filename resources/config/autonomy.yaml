@@ -330,8 +330,8 @@ autonomy_manager:
     managed_nodes:
       idle: []
       drive: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node]
-      adas: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, rl_local_planner_node]
-      fsd: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, livox_monitor_node, point_lio_monitor_node, localization_pose_adapter_node, rl_local_planner_node, global_planner_node, cmd_vel_to_command_user_node]
+      adas: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, global_planner_node, goal_pose_to_nav2_action_node, cmd_vel_to_command_user_node]
+      fsd: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, global_planner_node, goal_pose_to_nav2_action_node, cmd_vel_to_command_user_node]
       tracking: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
       mapping: [livox_monitor_node, point_lio_monitor_node, point_lio_map_saver_node]
 
@@ -477,6 +477,18 @@ nav2:
     launch_arguments:
       use_composition: false
 
+goal_pose_to_nav2_action_node:
+  ros__parameters:
+    enabled: true
+    goal_pose_topic: /goal_pose
+    navigate_to_pose_action: navigate_to_pose
+    behavior_tree: ""
+    server_wait_timeout_sec: 0.5
+    publish_rate_hz: 2.0
+    respect_autonomy_mode: true
+    autonomy_status_topic: /autonomy_manager/status
+    active_modes: [ADAS, FSD]
+
 cmd_vel_to_command_user_node:
   ros__parameters:
     cmd_vel_topic: /cmd_vel
@@ -486,6 +498,14 @@ cmd_vel_to_command_user_node:
     publish_rate_hz: 50.0
     cmd_timeout_sec: 0.25
     integrate_commanded_pose: true
+    respect_autonomy_mode: true
+    autonomy_status_topic: /autonomy_manager/status
+    active_modes: [ADAS, FSD]
+
+rviz2:
+  ros__parameters:
+    enabled: false
+    config_path: ""
 
 livox_monitor_node:
   ros__parameters:

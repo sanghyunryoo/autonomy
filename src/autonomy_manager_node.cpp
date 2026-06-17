@@ -168,7 +168,9 @@ public:
         "elevation_mapping_node",
         "point_lio_monitor_node",
         "localization_pose_adapter_node",
-        "rl_local_planner_node",
+        "global_planner_node",
+        "goal_pose_to_nav2_action_node",
+        "cmd_vel_to_command_user_node",
       });
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.fsd",
@@ -179,8 +181,8 @@ public:
         "elevation_mapping_node",
         "point_lio_monitor_node",
         "localization_pose_adapter_node",
-        "rl_local_planner_node",
         "global_planner_node",
+        "goal_pose_to_nav2_action_node",
         "cmd_vel_to_command_user_node",
       });
     declare_parameter<std::vector<std::string>>(
