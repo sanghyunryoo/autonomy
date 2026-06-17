@@ -21,6 +21,8 @@ public:
     declare_parameter<std::string>("pointcloud_topic", "/livox/lidar");
     declare_parameter<std::string>("required_frame_contains", "");
     declare_parameter<double>("detection_timeout_sec", 1.0);
+    declare_parameter<double>("startup_grace_sec", 12.0);
+    declare_parameter<bool>("fatal_on_timeout", true);
     declare_parameter<int>("min_points", 1);
     declare_parameter<double>("publish_rate_hz", 5.0);
 
@@ -29,6 +31,9 @@ public:
     required_frame_contains_ = get_parameter("required_frame_contains").as_string();
     min_points_ = std::max(1, static_cast<int>(get_parameter("min_points").as_int()));
     timeout_sec_ = std::max(0.1, get_parameter("detection_timeout_sec").as_double());
+    startup_grace_sec_ = std::max(0.0, get_parameter("startup_grace_sec").as_double());
+    fatal_on_timeout_ = get_parameter("fatal_on_timeout").as_bool();
+    start_time_ = now();
 
     cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       get_parameter("pointcloud_topic").as_string(),
@@ -70,6 +75,25 @@ private:
       heartbeat.data = "error:livox_mid360_not_detected";
     }
     heartbeat_pub_->publish(heartbeat);
+    maybeFailFast(heartbeat.data);
+  }
+
+  void maybeFailFast(const std::string & heartbeat)
+  {
+    if (!enabled_ || simulation_ || !fatal_on_timeout_ || detected()) {
+      return;
+    }
+    const auto elapsed = (now() - start_time_).seconds();
+    if (elapsed < startup_grace_sec_) {
+      return;
+    }
+    RCLCPP_FATAL(
+      get_logger(),
+      "LiDAR point cloud is not available after %.1f sec: topic timeout on /livox/lidar "
+      "(last_status=%s). Shutting down autonomy launch.",
+      elapsed,
+      heartbeat.c_str());
+    rclcpp::shutdown();
   }
 
   [[nodiscard]] bool detected() const
@@ -85,9 +109,12 @@ private:
   bool seen_{false};
   int min_points_{1};
   double timeout_sec_{1.0};
+  double startup_grace_sec_{12.0};
+  bool fatal_on_timeout_{true};
   std::size_t last_points_{0};
   std::string required_frame_contains_;
   std::string last_frame_id_;
+  rclcpp::Time start_time_{0, 0u, RCL_SYSTEM_TIME};
   rclcpp::Time last_seen_{0, 0u, RCL_SYSTEM_TIME};
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;

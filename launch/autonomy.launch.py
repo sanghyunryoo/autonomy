@@ -6,7 +6,7 @@ from xml.sax.saxutils import escape
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction, Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -683,6 +683,7 @@ def _worker_node(
     remappings=None,
     arguments=None,
     additional_env=None,
+    on_exit=None,
 ):
     return Node(
         package=package,
@@ -695,6 +696,7 @@ def _worker_node(
         sigkill_timeout=NODE_SIGKILL_TIMEOUT,
         parameters=parameters,
         additional_env=additional_env,
+        on_exit=on_exit,
     )
 
 
@@ -760,6 +762,8 @@ def _make_stack(context, *args, **kwargs):
         actions.append(_worker_node(
             "livox_monitor_node",
             [_node_params(data, "livox_monitor_node"), use_sim_time, {"simulation": False}],
+            output="screen",
+            on_exit=Shutdown(reason="LiDAR monitor exited; stopping autonomy launch."),
         ))
         actions.extend(_livox_driver_actions(data, use_sim_time))
 
