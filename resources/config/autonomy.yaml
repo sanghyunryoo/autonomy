@@ -566,6 +566,7 @@ point_lio:
     preprocess_lidar_type_real: 2
     preprocess_scan_line_real: 4
     preprocess_timestamp_unit_real: 0
+    mapping_acc_norm_real: 9.81
     use_imu_as_input: false
     prop_at_freq_of_imu: true
     check_satu: true

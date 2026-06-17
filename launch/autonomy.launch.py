@@ -406,6 +406,9 @@ def _point_lio_actions(data, simulation, use_sim_time):
     if timestamp_unit_key in params or "preprocess_timestamp_unit" in params:
         overrides["preprocess.timestamp_unit"] = int(
             params.get(timestamp_unit_key, params.get("preprocess_timestamp_unit")))
+    acc_norm_key = "mapping_acc_norm_simulation" if simulation else "mapping_acc_norm_real"
+    if acc_norm_key in params or "mapping_acc_norm" in params:
+        overrides["mapping.acc_norm"] = float(params.get(acc_norm_key, params.get("mapping_acc_norm")))
     if lidar_topic:
         overrides["common.lid_topic"] = str(lidar_topic)
     if imu_topic:

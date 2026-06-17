@@ -94,7 +94,7 @@ private:
 
     std::vector<InputPoint> points;
     points.reserve(pointCount(*msg));
-    double scan_start_time = std::numeric_limits<double>::quiet_NaN();
+    double scan_start_time = std::numeric_limits<double>::infinity();
 
     {
       sensor_msgs::PointCloud2ConstIterator<double> timestamp_it(*msg, "timestamp");
@@ -102,8 +102,7 @@ private:
       for (std::size_t i = 0; i < total; ++i, ++timestamp_it) {
         const auto timestamp = *timestamp_it;
         if (std::isfinite(timestamp) && timestamp > 0.0) {
-          scan_start_time = timestamp;
-          break;
+          scan_start_time = std::min(scan_start_time, timestamp);
         }
       }
     }
@@ -153,6 +152,11 @@ private:
 
     sensor_msgs::msg::PointCloud2 out;
     out.header = msg->header;
+    const auto scan_start_sec = static_cast<std::int32_t>(std::floor(scan_start_time));
+    const auto scan_start_nsec = static_cast<std::uint32_t>(
+      std::clamp((scan_start_time - static_cast<double>(scan_start_sec)) * 1.0e9, 0.0, 999999999.0));
+    out.header.stamp.sec = scan_start_sec;
+    out.header.stamp.nanosec = scan_start_nsec;
     if (!output_frame_id_.empty()) {
       out.header.frame_id = output_frame_id_;
     }
