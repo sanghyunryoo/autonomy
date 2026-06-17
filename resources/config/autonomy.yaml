@@ -491,8 +491,8 @@ livox_monitor_node:
     simulation: false
     pointcloud_topic: /livox/lidar
     required_frame_contains: livox
-    detection_timeout_sec: 1.0
-    startup_grace_sec: 12.0
+    detection_timeout_sec: 3.0
+    startup_grace_sec: 20.0
     fatal_on_timeout: true
     min_points: 1
     publish_rate_hz: 5.0

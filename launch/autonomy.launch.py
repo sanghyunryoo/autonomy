@@ -13,8 +13,8 @@ from launch_ros.actions import Node
 
 
 PACKAGE_NAME = "autonomy"
-NODE_SIGTERM_TIMEOUT = "0.5"
-NODE_SIGKILL_TIMEOUT = "1.0"
+NODE_SIGTERM_TIMEOUT = "3.0"
+NODE_SIGKILL_TIMEOUT = "6.0"
 QUIET_WORKER_ROS_ARGS = ["--ros-args", "--log-level", "fatal"]
 STACK_MODE = "fsd"  # Keep every camera/node needed for runtime mode switching available.
 

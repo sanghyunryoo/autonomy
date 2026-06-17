@@ -71,6 +71,9 @@ private:
       heartbeat.data = "simulated";
     } else if (detected()) {
       heartbeat.data = "detected:frame=" + last_frame_id_ + ":points=" + std::to_string(last_points_);
+    } else if (seen_) {
+      heartbeat.data = "error:livox_mid360_signal_lost:last_frame=" + last_frame_id_ +
+        ":last_points=" + std::to_string(last_points_);
     } else {
       heartbeat.data = "error:livox_mid360_not_detected";
     }
@@ -81,6 +84,17 @@ private:
   void maybeFailFast(const std::string & heartbeat)
   {
     if (!enabled_ || simulation_ || !fatal_on_timeout_ || detected()) {
+      return;
+    }
+    if (seen_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        5000,
+        "LiDAR point cloud timed out after being detected once; keeping autonomy launch alive "
+        "(last_frame=%s, last_points=%zu).",
+        last_frame_id_.c_str(),
+        last_points_);
       return;
     }
     const auto elapsed = (now() - start_time_).seconds();
