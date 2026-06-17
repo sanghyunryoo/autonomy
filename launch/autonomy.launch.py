@@ -396,6 +396,16 @@ def _point_lio_actions(data, simulation, use_sim_time):
         "cube_side_length": float(params.get("cube_side_length", 1000.0)),
         "runtime_pos_log_enable": _parse_bool(params.get("runtime_pos_log_enable", False), default=False),
     }
+    lidar_type_key = "preprocess_lidar_type_simulation" if simulation else "preprocess_lidar_type_real"
+    scan_line_key = "preprocess_scan_line_simulation" if simulation else "preprocess_scan_line_real"
+    timestamp_unit_key = "preprocess_timestamp_unit_simulation" if simulation else "preprocess_timestamp_unit_real"
+    if lidar_type_key in params or "preprocess_lidar_type" in params:
+        overrides["preprocess.lidar_type"] = int(params.get(lidar_type_key, params.get("preprocess_lidar_type")))
+    if scan_line_key in params or "preprocess_scan_line" in params:
+        overrides["preprocess.scan_line"] = int(params.get(scan_line_key, params.get("preprocess_scan_line")))
+    if timestamp_unit_key in params or "preprocess_timestamp_unit" in params:
+        overrides["preprocess.timestamp_unit"] = int(
+            params.get(timestamp_unit_key, params.get("preprocess_timestamp_unit")))
     if lidar_topic:
         overrides["common.lid_topic"] = str(lidar_topic)
     if imu_topic:
@@ -505,6 +515,21 @@ def _livox_driver_actions(data, use_sim_time):
             [driver_params, use_sim_time],
             name="livox_lidar_publisher",
             package=str(params.get("package", "livox_ros_driver2")),
+            output="screen",
+        )
+    ]
+
+
+def _livox_pointcloud_adapter_actions(data, use_sim_time, simulation):
+    if simulation:
+        return []
+    params = _node_params(data, "livox_pointcloud_adapter_node") or {}
+    if not _parse_bool(params.get("enabled", True), default=True):
+        return []
+    return [
+        _worker_node(
+            "livox_pointcloud_adapter_node",
+            [params, use_sim_time],
             output="screen",
         )
     ]
@@ -754,8 +779,8 @@ def _ai_topic_params(data, space):
 def _managed_nodes(simulation, enable_nav2, enable_tracking):
     base = ["imu_stabilized_tf_node", "pointcloud_merge_node", "elevation_mapping_node"]
     if not simulation:
-        base = ["realsense_usb_mapper", "livox_monitor_node"] + base
-    point_lio_stack = ["point_lio_monitor_node", "localization_pose_adapter_node"]
+        base = ["realsense_usb_mapper", "livox_monitor_node", "livox_pointcloud_adapter_node"] + base
+    point_lio_stack = ["point_lio_monitor_node", "point_lio_map_saver_node", "localization_pose_adapter_node"]
     adas_stack = base + point_lio_stack
     if enable_nav2:
         adas_stack += ["global_planner_node", "goal_pose_to_nav2_action_node", "cmd_vel_to_command_user_node"]
@@ -770,7 +795,7 @@ def _managed_nodes(simulation, enable_nav2, enable_tracking):
                 fsd_stack.append(node_name)
     mapping_stack = ["point_lio_monitor_node", "point_lio_map_saver_node"]
     if not simulation:
-        mapping_stack = ["livox_monitor_node"] + mapping_stack
+        mapping_stack = ["livox_monitor_node", "livox_pointcloud_adapter_node"] + mapping_stack
     tracking_stack = base + (["ai_detection_node", "tracking_follower_node"] if enable_tracking else [])
 
     return {
@@ -873,6 +898,7 @@ def _make_stack(context, *args, **kwargs):
             output="screen",
             on_exit=Shutdown(reason="LiDAR monitor exited; stopping autonomy launch."),
         ))
+        actions.extend(_livox_pointcloud_adapter_actions(data, use_sim_time, simulation))
         actions.extend(_livox_driver_actions(data, use_sim_time))
 
     actions.extend([

@@ -313,11 +313,11 @@ autonomy_manager:
     publish_rate_hz: 10.0
     managed_nodes:
       idle: []
-      drive: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node]
-      adas: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, global_planner_node, goal_pose_to_nav2_action_node, cmd_vel_to_command_user_node]
-      fsd: [realsense_usb_mapper, livox_monitor_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, global_planner_node, goal_pose_to_nav2_action_node, cmd_vel_to_command_user_node]
+      drive: [realsense_usb_mapper, livox_monitor_node, livox_pointcloud_adapter_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node]
+      adas: [realsense_usb_mapper, livox_monitor_node, livox_pointcloud_adapter_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, point_lio_map_saver_node, localization_pose_adapter_node, global_planner_node, goal_pose_to_nav2_action_node, cmd_vel_to_command_user_node]
+      fsd: [realsense_usb_mapper, livox_monitor_node, livox_pointcloud_adapter_node, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, point_lio_map_saver_node, localization_pose_adapter_node, global_planner_node, goal_pose_to_nav2_action_node, cmd_vel_to_command_user_node]
       tracking: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
-      mapping: [livox_monitor_node, point_lio_monitor_node, point_lio_map_saver_node]
+      mapping: [livox_monitor_node, livox_pointcloud_adapter_node, point_lio_monitor_node, point_lio_map_saver_node]
 
 rl_local_planner_node:
   ros__parameters:
@@ -517,9 +517,19 @@ point_lio_monitor_node:
     enabled: true
     simulation: false
     odometry_topic: /aft_mapped_to_init
-    pointcloud_topic: /livox/lidar
+    pointcloud_topic: /point_lio/lidar
     imu_topic: /livox/imu
     detection_timeout_sec: 1.0
+    publish_rate_hz: 5.0
+
+livox_pointcloud_adapter_node:
+  ros__parameters:
+    enabled: true
+    input_topic: /livox/lidar
+    output_topic: /point_lio/lidar
+    output_frame_id: livox_frame
+    scan_lines: 4
+    filter_invalid_returns: true
     publish_rate_hz: 5.0
 
 point_lio_map_saver_node:
@@ -532,7 +542,7 @@ point_lio_map_saver_node:
     frame_id: map
     respect_autonomy_mode: true
     autonomy_status_topic: /autonomy_manager/status
-    active_modes: [MAPPING]
+    active_modes: [ADAS, FSD, MAPPING]
     resolution: 0.1
     width: 400
     height: 400
@@ -550,9 +560,12 @@ point_lio:
     package: point_lio
     real_config_file: mid360.yaml
     simulation_config_file: velody16.yaml
-    lidar_topic_real: /livox/lidar
+    lidar_topic_real: /point_lio/lidar
     imu_topic_real: /livox/imu
     odom_frame_id: map
+    preprocess_lidar_type_real: 4
+    preprocess_scan_line_real: 4
+    preprocess_timestamp_unit_real: 0
     use_imu_as_input: false
     prop_at_freq_of_imu: true
     check_satu: true

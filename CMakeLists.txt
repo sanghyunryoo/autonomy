@@ -161,6 +161,12 @@ add_executable(livox_monitor_node
 target_include_directories(livox_monitor_node PRIVATE include)
 ament_target_dependencies(livox_monitor_node rclcpp sensor_msgs std_msgs)
 
+add_executable(livox_pointcloud_adapter_node
+  src/livox_pointcloud_adapter_node.cpp
+)
+target_include_directories(livox_pointcloud_adapter_node PRIVATE include)
+ament_target_dependencies(livox_pointcloud_adapter_node rclcpp sensor_msgs std_msgs)
+
 add_executable(point_lio_monitor_node
   src/point_lio_monitor_node.cpp
 )
@@ -221,6 +227,7 @@ install(TARGETS
   global_planner_node
   imu_stabilized_tf_node
   livox_monitor_node
+  livox_pointcloud_adapter_node
   localization_pose_adapter_node
   rl_local_planner_node
   point_lio_monitor_node
