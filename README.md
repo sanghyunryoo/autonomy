@@ -299,8 +299,8 @@ Key fields:
 
 ## Localization
 
-The autonomy launch uses RTAB-Map RGB-D odometry with the ADAS D435i RGB-D
-stream. RTAB-Map publishes odometry on `/rtabmap/odom`; the local
-`localization_pose_adapter_node` owns the continuous `odom -> base_footprint`
-TF and republishes `/localization/current_pose` as `geometry_msgs/Pose2D` for
-the RL local planner.
+The autonomy launch uses Point-LIO as the only SLAM/localization backend.
+Point-LIO publishes odometry on `/aft_mapped_to_init` and owns the localization
+TF. The local `localization_pose_adapter_node` republishes
+`/localization/current_pose` as `geometry_msgs/Pose2D` for the local planner and
+Nav2 integration.

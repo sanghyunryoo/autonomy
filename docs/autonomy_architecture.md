@@ -9,10 +9,10 @@ around it.
   local terrain map.
 - Perception: ADAS front-camera detector publishes annotated images and
   `DetectedObjectArray` with optional 3D positions.
-- Localization: RTAB-Map runs RGB-D odometry only; the local adapter keeps
-  `odom -> base_footprint` alive and republishes the current 2D pose for the planner.
-- Planning: global planner publishes a global path; ONNX RL local planner consumes
-  current pose, target pose, and local height scan, then publishes velocity.
+- Localization: Point-LIO is the only SLAM backend; the local adapter republishes
+  Point-LIO odometry as the current 2D pose for planner consumers.
+- Planning: Nav2 handles navigation behaviors from Point-LIO localization and the
+  saved/global costmap; the command bridge converts Nav2 velocity into user commands.
 - Supervision: autonomy manager owns mode state, ESTOP, node heartbeat status, and
   degraded/error reporting.
 

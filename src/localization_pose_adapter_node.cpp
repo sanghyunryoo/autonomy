@@ -26,13 +26,14 @@ public:
   LocalizationPoseAdapterNode()
   : Node("localization_pose_adapter_node")
   {
-    declare_parameter<std::string>("odom_topic", "/rtabmap/odom");
+    declare_parameter<std::string>("odom_topic", "/aft_mapped_to_init");
     declare_parameter<std::string>("pose2d_topic", "/localization/current_pose");
     declare_parameter<std::string>("path_topic", "/localization/trajectory");
-    declare_parameter<std::string>("heartbeat_name", "rtabmap_localization_node");
-    declare_parameter<std::string>("odom_frame_id", "odom");
+    declare_parameter<std::string>("heartbeat_name", "localization_pose_adapter_node");
+    declare_parameter<std::string>("odom_frame_id", "map");
     declare_parameter<std::string>("base_frame_id", "4w4l/base_footprint");
     declare_parameter<std::string>("reset_odom_service", "/reset_odom");
+    declare_parameter<bool>("publish_tf", false);
     declare_parameter<double>("publish_rate_hz", 10.0);
     declare_parameter<double>("odom_timeout_sec", 0.5);
     declare_parameter<double>("recovery_timeout_sec", 1.0);
@@ -49,6 +50,7 @@ public:
     odom_frame_id_ = get_parameter("odom_frame_id").as_string();
     base_frame_id_ = get_parameter("base_frame_id").as_string();
     reset_odom_service_ = get_parameter("reset_odom_service").as_string();
+    publish_tf_ = get_parameter("publish_tf").as_bool();
     odom_timeout_sec_ = std::max(0.0, get_parameter("odom_timeout_sec").as_double());
     recovery_timeout_sec_ = std::max(0.0, get_parameter("recovery_timeout_sec").as_double());
     recovery_cooldown_sec_ = std::max(0.0, get_parameter("recovery_cooldown_sec").as_double());
@@ -127,7 +129,7 @@ private:
         get_logger(),
         *get_clock(),
         2000,
-        "Ignoring invalid odometry pose from RTAB-Map: rejected=%zu",
+        "Ignoring invalid localization odometry pose: rejected=%zu",
         rejected_odom_count_);
       return;
     }
@@ -186,6 +188,9 @@ private:
 
   void publishTf()
   {
+    if (!publish_tf_) {
+      return;
+    }
     current_transform_.header.stamp = now();
     current_transform_.header.frame_id = odom_frame_id_;
     current_transform_.child_frame_id = base_frame_id_;
@@ -281,7 +286,7 @@ private:
     reset_odom_client_->async_send_request(request);
     RCLCPP_WARN(
       get_logger(),
-      "Requested RTAB-Map odometry recovery via %s (count=%zu reason=%s)",
+      "Requested localization odometry recovery via %s (count=%zu reason=%s)",
       reset_odom_service_.c_str(),
       recovery_request_count_,
       timeout_recovery ? "timeout" : "invalid_odom");
@@ -352,6 +357,7 @@ private:
   std::string reset_odom_service_;
   int dds_domain_id_{1};
   bool dds_lin_vel_enabled_{true};
+  bool publish_tf_{false};
   std::string dds_lin_vel_topic_{"lin_vel"};
   std::string dds_lin_vel_type_{"core_dds::LinearVelocity"};
   double odom_timeout_sec_{0.5};

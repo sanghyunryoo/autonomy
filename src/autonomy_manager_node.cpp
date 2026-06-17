@@ -145,7 +145,7 @@ public:
   : Node("autonomy_manager")
   {
     declare_parameter<std::string>("startup_mode", "DRIVE");
-    declare_parameter<std::string>("pose_topic", "/rtabmap/odom");
+    declare_parameter<std::string>("pose_topic", "/aft_mapped_to_init");
     declare_parameter<std::string>("robot_report_topic", "/robot_report");
     declare_parameter<std::string>("map_dir", "");
     declare_parameter<double>("speed_limit", 0.0);
@@ -161,17 +161,18 @@ public:
       {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node"});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.adas",
-      {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node", "rtabmap_localization_node", "ai_detection_node"});
+      {"realsense_usb_mapper", "pointcloud_merge_node", "elevation_mapping_node", "point_lio_monitor_node", "localization_pose_adapter_node"});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.fsd",
       {
         "realsense_usb_mapper",
         "pointcloud_merge_node",
         "elevation_mapping_node",
-        "ai_detection_node",
+        "point_lio_monitor_node",
+        "localization_pose_adapter_node",
         "rl_local_planner_node",
         "global_planner_node",
-        "rtabmap_localization_node",
+        "cmd_vel_to_command_user_node",
       });
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.mapping",

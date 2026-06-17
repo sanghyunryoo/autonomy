@@ -179,9 +179,25 @@ target_include_directories(tracking_follower_node PRIVATE include)
 ament_target_dependencies(tracking_follower_node geometry_msgs rclcpp std_msgs)
 target_link_libraries(tracking_follower_node "${cpp_typesupport_target}")
 
+add_executable(cmd_vel_to_command_user_node
+  src/cmd_vel_to_command_user_node.cpp
+)
+target_include_directories(cmd_vel_to_command_user_node PRIVATE include)
+ament_target_dependencies(
+  cmd_vel_to_command_user_node
+  core
+  geometry_msgs
+  nav_msgs
+  rclcpp
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+)
+
 install(TARGETS
   ai_detection_node
   autonomy_manager_node
+  cmd_vel_to_command_user_node
   pointcloud_merge_node
   elevation_mapping_node
   global_planner_node

@@ -85,11 +85,10 @@ def _frame_alias_static_tf_nodes(data, space, use_sim_time):
 
     aliases = []
     seen = set()
-    try:
-        bindings = [_find_camera_binding(data, space, _rtabmap_camera_role(data, space))]
-    except RuntimeError:
-        bindings = []
+    bindings = _camera_bindings(data, space)
     for binding in bindings:
+        if not isinstance(binding, dict) or not _parse_bool(binding.get("enabled", True), default=True):
+            continue
         for key in ("optical_frame", "rgb_optical_frame", "color_optical_frame"):
             child = str(binding.get(key, "")).strip().lstrip("/")
             if not child or "/" in child:
@@ -272,6 +271,77 @@ def _point_lio_launch_arguments(data, simulation):
     return launch_arguments
 
 
+def _point_lio_actions(data, simulation, use_sim_time):
+    params = _node_params(data, "point_lio") or {}
+    if not _parse_bool(params.get("enabled", True), default=True):
+        return []
+    try:
+        package_share = Path(get_package_share_directory(str(params.get("package", "point_lio"))))
+    except Exception as exc:
+        return [LogInfo(msg=f"point_lio: package not found, skipping Point-LIO ({exc})")]
+
+    config_key = "simulation_config_file" if simulation else "real_config_file"
+    default_config = "velody16.yaml" if simulation else "mid360.yaml"
+    config_file = _resolve_package_path(params.get(config_key, ""))
+    if not config_file:
+        config_file = str(package_share / "config" / str(params.get("config_file", default_config)))
+    elif not Path(config_file).is_absolute() and "/" not in str(config_file):
+        config_file = str(package_share / "config" / str(config_file))
+
+    lidar_topic = params.get("lidar_topic_simulation" if simulation else "lidar_topic_real")
+    imu_topic = params.get("imu_topic_simulation" if simulation else "imu_topic_real")
+    overrides = {
+        "odom_header_frame_id": str(params.get("odom_frame_id", "map")),
+        "odom_child_frame_id": str(params.get("base_frame_id", "4w4l/base_footprint")),
+        "use_sim_time": simulation,
+    }
+    if lidar_topic:
+        overrides["common.lid_topic"] = str(lidar_topic)
+    if imu_topic:
+        overrides["common.imu_topic"] = str(imu_topic)
+
+    return [
+        _worker_node(
+            "pointlio_mapping",
+            [config_file, overrides, use_sim_time],
+            name="laserMapping",
+            package=str(params.get("package", "point_lio")),
+            output="screen",
+        )
+    ]
+
+
+def _nav2_actions(data, simulation):
+    params = _node_params(data, "nav2") or {}
+    if not _parse_bool(params.get("enabled", True), default=True):
+        return []
+    try:
+        package_share = Path(get_package_share_directory(str(params.get("package", "nav2_bringup"))))
+    except Exception as exc:
+        return [LogInfo(msg=f"nav2: package not found, skipping Nav2 ({exc})")]
+
+    launch_file = str(params.get("launch_file", "navigation_launch.py"))
+    launch_path = package_share / "launch" / launch_file
+    if not launch_path.exists():
+        return [LogInfo(msg=f"nav2: launch file not found: {launch_path}")]
+
+    params_file = _resolve_package_path(params.get("params_file", "resources/config/nav2_point_lio.yaml"))
+    launch_arguments = {
+        "use_sim_time": "true" if simulation else "false",
+        "params_file": params_file,
+        "autostart": str(params.get("autostart", True)).lower(),
+    }
+    for key, value in (params.get("launch_arguments", {}) or {}).items():
+        launch_arguments[str(key)] = str(value)
+
+    return [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(str(launch_path)),
+            launch_arguments=launch_arguments.items(),
+        )
+    ]
+
+
 def _binding_space(simulation):
     return "simulation" if _parse_bool(simulation, default=False) else "real"
 
@@ -431,14 +501,6 @@ def _front_enabled(data, space):
     return _enabled_camera_binding(data, space, "front") is not None
 
 
-def _rtabmap_enabled(data, space):
-    role = _rtabmap_camera_role(data, space)
-    return _enabled_camera_binding(data, space, role) is not None and _parse_bool(
-        _node_params(data, "rtabmap_localization_node").get("enabled", True),
-        default=True,
-    )
-
-
 def _node_enabled(data, node_name, default=True):
     return _parse_bool(_node_params(data, node_name).get("enabled", default), default=default)
 
@@ -473,84 +535,15 @@ def _ai_topic_params(data, space):
     }
 
 
-def _rtabmap_params(data, space):
-    params = _node_params(data, "rtabmap_localization_node").copy()
-    binding = _find_camera_binding(data, space, _rtabmap_camera_role(data, space))
-    base = _camera_base_topic(binding, space)
-    params["rgb_topic"] = _rtabmap_topic_param(
-        params,
-        space,
-        "rgb_topic",
-        _topic_from_binding(
-            binding,
-            ("rgb_topic", "color_topic", "image_topic"),
-            f"{base}/rgb/image_raw" if space == "simulation" else f"{base}/color/image_raw",
-        ),
-    )
-    params["depth_topic"] = _rtabmap_topic_param(
-        params,
-        space,
-        "depth_topic",
-        _topic_from_binding(binding, ("depth_topic",), f"{base}/depth/image_rect_raw"),
-    )
-    params["camera_info_topic"] = _rtabmap_topic_param(
-        params,
-        space,
-        "camera_info_topic",
-        _topic_from_binding(
-            binding,
-            ("rgb_camera_info_topic", "color_camera_info_topic", "camera_info_topic"),
-            f"{base}/rgb/camera_info" if space == "simulation" else f"{base}/color/camera_info",
-        ),
-    )
-    return params
-
-
-def _rtabmap_camera_role(data, space):
-    params = _node_params(data, "rtabmap_localization_node")
-    role = params.get(f"{space}_camera_role", params.get("camera_role", "adas"))
-    return str(role).strip().lower()
-
-
-def _rtabmap_topic_param(params, space, key, default):
-    return str(params.get(f"{space}_{key}", params.get(key, default)))
-
-
-def _rtabmap_node_params(params):
-    excluded = {
-        "enabled",
-        "camera_role",
-        "simulation_camera_role",
-        "real_camera_role",
-        "rgb_topic",
-        "depth_topic",
-        "camera_info_topic",
-        "simulation_rgb_topic",
-        "simulation_depth_topic",
-        "simulation_camera_info_topic",
-        "real_rgb_topic",
-        "real_depth_topic",
-        "real_camera_info_topic",
-        "odom_topic",
-    }
-    return {key: value for key, value in params.items() if key not in excluded}
-
-
-def _rtabmap_remappings(params):
-    return [
-        ("rgb/image", str(params["rgb_topic"])),
-        ("depth/image", str(params["depth_topic"])),
-        ("rgb/camera_info", str(params["camera_info_topic"])),
-        ("odom", str(params.get("odom_topic", "/rtabmap/odom"))),
-    ]
-
-
-def _managed_nodes(simulation, enable_rtabmap, enable_tracking):
+def _managed_nodes(simulation, enable_nav2, enable_tracking):
     base = ["imu_stabilized_tf_node", "pointcloud_merge_node", "elevation_mapping_node"]
     if not simulation:
         base = ["realsense_usb_mapper"] + base
-    adas_stack = base + (["rtabmap_localization_node", "rl_local_planner_node"] if enable_rtabmap else [])
-    fsd_stack = adas_stack + ["point_lio_monitor_node", "global_planner_node"]
+    point_lio_stack = ["point_lio_monitor_node", "localization_pose_adapter_node"]
+    adas_stack = base + point_lio_stack + ["rl_local_planner_node"]
+    fsd_stack = adas_stack + ["global_planner_node"]
+    if enable_nav2:
+        fsd_stack += ["cmd_vel_to_command_user_node"]
     if not simulation:
         fsd_stack = ["livox_monitor_node"] + fsd_stack
     mapping_stack = ["point_lio_monitor_node", "point_lio_map_saver_node"]
@@ -600,8 +593,8 @@ def _make_stack(context, *args, **kwargs):
     dds_env = _dds_network_env(data)
     space = _binding_space(simulation_text)
     use_sim_time = {"use_sim_time": LaunchConfiguration("simulation")}
-    enable_local_stack = _adas_enabled(data, space)
-    enable_rtabmap = _rtabmap_enabled(data, space)
+    enable_local_stack = True
+    enable_nav2 = _node_enabled(data, "nav2")
     enable_rl_local_planner = enable_local_stack and _node_enabled(data, "rl_local_planner_node")
     enable_ai_detection = _adas_enabled(data, space) and _node_enabled(data, "ai_detection_node")
     enable_global_planner = enable_local_stack and _node_enabled(data, "global_planner_node")
@@ -657,44 +650,19 @@ def _make_stack(context, *args, **kwargs):
     actions.extend([
         _worker_node(
             "point_lio_monitor_node",
-            [_node_params(data, "point_lio_monitor_node"), use_sim_time, {"simulation": False}],
+            [_node_params(data, "point_lio_monitor_node"), use_sim_time, {"simulation": simulation}],
         ),
         _worker_node(
             "point_lio_map_saver_node",
             [_node_params(data, "point_lio_map_saver_node"), use_sim_time, {"map_dir": map_dir}],
         ),
     ])
-    point_lio_params = _node_params(data, "point_lio") or {}
-    profile_key = "simulation_launch_file" if simulation else "real_launch_file"
-    default_point_lio_launch = str(point_lio_params.get(profile_key, "mapping_avia.launch.py"))
-    actions.extend(_external_launch(
-        data,
-        "point_lio",
-        "point_lio",
-        default_point_lio_launch,
-        _point_lio_launch_arguments(data, simulation),
+    actions.extend(_point_lio_actions(data, simulation, use_sim_time))
+    actions.append(_worker_node(
+        "localization_pose_adapter_node",
+        [_node_params(data, "localization_pose_adapter_node"), use_sim_time],
+        additional_env=dds_env,
     ))
-
-    if enable_rtabmap:
-        rtabmap_params = _rtabmap_params(data, space)
-        rtabmap_common_params = _rtabmap_node_params(rtabmap_params)
-        rtabmap_remappings = _rtabmap_remappings(rtabmap_params)
-        actions.extend([
-            _worker_node(
-                "rgbd_odometry",
-                [rtabmap_common_params, use_sim_time],
-                name="rtabmap_rgbd_odometry",
-                package="rtabmap_odom",
-                remappings=rtabmap_remappings,
-            ),
-            _worker_node(
-                "localization_pose_adapter_node",
-                [_node_params(data, "localization_pose_adapter_node"), use_sim_time],
-                additional_env=dds_env,
-            ),
-        ])
-    elif enable_local_stack:
-        actions.append(LogInfo(msg="RTAB-Map localization is disabled; /localization/current_pose must come from another node."))
 
     if enable_ai_detection:
         actions.append(
@@ -724,6 +692,15 @@ def _make_stack(context, *args, **kwargs):
             )
         )
 
+    if enable_nav2:
+        actions.extend(_nav2_actions(data, simulation))
+        actions.append(
+            _worker_node(
+                "cmd_vel_to_command_user_node",
+                [_node_params(data, "cmd_vel_to_command_user_node"), use_sim_time],
+            )
+        )
+
     if enable_tracking_follower:
         actions.append(
             _worker_node(
@@ -732,8 +709,6 @@ def _make_stack(context, *args, **kwargs):
             )
         )
 
-    if not enable_local_stack:
-        actions.append(LogInfo(msg="ADAS camera is disabled; local autonomy worker nodes will not start."))
     if not _adas_enabled(data, space):
         actions.append(LogInfo(msg="ADAS camera is disabled; AI detection/tracking worker nodes will not start."))
 
@@ -748,7 +723,7 @@ def _make_stack(context, *args, **kwargs):
                     "enable_ai": False,
                     "segmentation": False,
                     "map_dir": map_dir,
-                    **_managed_nodes(simulation, enable_rtabmap, enable_tracking_follower),
+                    **_managed_nodes(simulation, enable_nav2, enable_tracking_follower),
                 },
             ],
             name="autonomy_manager",

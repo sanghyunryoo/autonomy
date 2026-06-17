@@ -295,7 +295,7 @@ elevation_mapping_node:
 autonomy_manager:
   ros__parameters:
     startup_mode: DRIVE
-    pose_topic: /rtabmap/odom
+    pose_topic: /aft_mapped_to_init
     robot_report_topic: /robot_report
     map_dir: src/autonomy/resources/map
     speed_limit: 0.0
@@ -306,8 +306,8 @@ autonomy_manager:
     managed_nodes:
       idle: []
       drive: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node]
-      adas: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, rtabmap_localization_node, rl_local_planner_node]
-      fsd: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, rtabmap_localization_node, livox_monitor_node, point_lio_monitor_node, rl_local_planner_node, global_planner_node]
+      adas: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, point_lio_monitor_node, localization_pose_adapter_node, rl_local_planner_node]
+      fsd: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, livox_monitor_node, point_lio_monitor_node, localization_pose_adapter_node, rl_local_planner_node, global_planner_node, cmd_vel_to_command_user_node]
       tracking: [realsense_usb_mapper, imu_stabilized_tf_node, pointcloud_merge_node, elevation_mapping_node, ai_detection_node, tracking_follower_node]
       mapping: [livox_monitor_node, point_lio_monitor_node, point_lio_map_saver_node]
 
@@ -388,47 +388,15 @@ tracking_follower_node:
     target_timeout_sec: 0.5
     publish_rate_hz: 20.0
 
-rtabmap_localization_node:
-  ros__parameters:
-    enabled: true
-    simulation_camera_role: adas
-    real_camera_role: adas
-    simulation_rgb_topic: /robot_4w4l/adas_camera/rgb/image_raw
-    simulation_depth_topic: /robot_4w4l/adas_camera/depth/image_rect_raw
-    simulation_camera_info_topic: /robot_4w4l/adas_camera/rgb/camera_info
-    real_rgb_topic: /adas_camera/color/image_raw
-    real_depth_topic: /adas_camera/depth/image_rect_raw
-    real_camera_info_topic: /adas_camera/color/camera_info
-    odom_topic: /rtabmap/odom
-    odom_frame_id: odom
-    frame_id: 4w4l/base_footprint
-    approx_sync: true
-    approx_sync_max_interval: 0.05
-    queue_size: 10
-    publish_tf: false
-    publish_null_when_lost: false
-    wait_for_transform: 0.2
-    subscribe_depth: true
-    "Reg/Force3DoF": "true"
-    "Odom/GuessMotion": "true"
-    "Odom/KeyFrameThr": "0.15"
-    "Odom/VisKeyFrameThr": "30"
-    "OdomF2M/MaxSize": "4000"
-    "OdomF2M/MaxNewFeatures": "500"
-    "OdomF2M/ValidDepthRatio": "0.02"
-    "Vis/MinInliers": "8"
-    "Vis/MaxFeatures": "2000"
-    "GFTT/QualityLevel": "0.0005"
-    "GFTT/MinDistance": "3"
-
 localization_pose_adapter_node:
   ros__parameters:
-    odom_topic: /rtabmap/odom
+    odom_topic: /aft_mapped_to_init
     pose2d_topic: /localization/current_pose
     path_topic: /localization/trajectory
-    heartbeat_name: rtabmap_localization_node
-    odom_frame_id: odom
+    heartbeat_name: localization_pose_adapter_node
+    odom_frame_id: map
     base_frame_id: 4w4l/base_footprint
+    publish_tf: false
     odom_timeout_sec: 0.5
     recovery_timeout_sec: 3.0
     recovery_cooldown_sec: 8.0
@@ -474,6 +442,26 @@ global_planner_node:
     unknown_cost: 80
     cost_weight: 3.0
     publish_rate_hz: 2.0
+
+nav2:
+  ros__parameters:
+    enabled: true
+    package: nav2_bringup
+    launch_file: navigation_launch.py
+    params_file: resources/config/nav2_point_lio.yaml
+    autostart: true
+    launch_arguments:
+      use_composition: false
+
+cmd_vel_to_command_user_node:
+  ros__parameters:
+    cmd_vel_topic: /cmd_vel
+    command_user_topic: /command_user
+    odom_frame_id: odom
+    base_frame_id: 4w4l/base_footprint
+    publish_rate_hz: 50.0
+    cmd_timeout_sec: 0.25
+    integrate_commanded_pose: true
 
 livox_monitor_node:
   ros__parameters:
@@ -529,12 +517,11 @@ point_lio:
   ros__parameters:
     enabled: true
     package: point_lio
-    real_launch_file: mapping_avia.launch.py
-    simulation_launch_file: mapping_velody16.launch.py
+    real_config_file: mid360.yaml
+    simulation_config_file: velody16.yaml
     lidar_topic_real: /livox/lidar
     lidar_topic_simulation: /robot_4w4l/livox/lidar
-    launch_arguments:
-      rviz: false
-      use_rviz: false
-      launch_rviz: false
-      lid_topic: /livox/lidar
+    imu_topic_real: /livox/imu
+    imu_topic_simulation: /robot_4w4l/imu
+    odom_frame_id: map
+    base_frame_id: 4w4l/base_footprint
