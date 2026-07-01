@@ -118,37 +118,6 @@ apt_package_available() {
   apt-cache show "$1" >/dev/null 2>&1
 }
 
-ensure_realsense_udev_rules() {
-  log "Ensuring RealSense udev rules"
-
-  if apt_package_installed librealsense2-udev-rules; then
-    log "librealsense2-udev-rules is already installed; skipping apt install"
-  else
-    sudo apt-get update
-    if apt_package_available librealsense2-udev-rules; then
-      apt_install librealsense2-udev-rules
-    elif [[ -f "${librealsense_src_dir}/config/99-realsense-libusb.rules" ]]; then
-      warn "librealsense2-udev-rules apt package is unavailable; installing rules from ${librealsense_src_dir}"
-      sudo install -m 0644 \
-        "${librealsense_src_dir}/config/99-realsense-libusb.rules" \
-        /etc/udev/rules.d/99-realsense-libusb.rules
-    elif [[ -x "${librealsense_src_dir}/scripts/setup_udev_rules.sh" ]]; then
-      warn "librealsense2-udev-rules apt package is unavailable; applying rules from ${librealsense_src_dir}"
-      (
-        cd "${librealsense_src_dir}"
-        sudo ./scripts/setup_udev_rules.sh
-      )
-    else
-      warn "librealsense2-udev-rules is unavailable and no librealsense source udev script was found."
-      warn "RealSense IMU/HID access may fail until udev rules are installed."
-    fi
-  fi
-
-  sudo udevadm control --reload-rules || true
-  sudo udevadm trigger || true
-  warn "If a RealSense camera is already connected, unplug and replug it so HID/IMU permissions refresh."
-}
-
 path_list_contains() {
   local value="${1:-}"
   local needle="${2:-}"
@@ -675,6 +644,39 @@ librealsense_installed() {
   [[ -f /usr/local/lib/librealsense2.so || -f /usr/lib/aarch64-linux-gnu/librealsense2.so ]]
 }
 
+local_realsense2_cmake_dir() {
+  local candidate
+  for candidate in \
+    /usr/local/lib/cmake/realsense2 \
+    /usr/local/lib/aarch64-linux-gnu/cmake/realsense2 \
+    /usr/local/share/realsense2; do
+    if [[ -f "${candidate}/realsense2Config.cmake" || -f "${candidate}/realsense2-config.cmake" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+local_librealsense_installed() {
+  [[ -f /usr/local/lib/librealsense2.so || -f /usr/local/lib/librealsense2.so.2.57 ]] &&
+    local_realsense2_cmake_dir >/dev/null
+}
+
+prefer_local_librealsense() {
+  prepend_path_once PATH /usr/local/bin
+  prepend_path_once LD_LIBRARY_PATH /usr/local/lib
+  prepend_path_once LIBRARY_PATH /usr/local/lib
+  prepend_path_once PKG_CONFIG_PATH /usr/local/lib/pkgconfig
+  prepend_path_once CMAKE_PREFIX_PATH /usr/local
+
+  local realsense2_cmake_dir
+  realsense2_cmake_dir="$(local_realsense2_cmake_dir)" ||
+    die "Local librealsense CMake config was not found under /usr/local. Build librealsense first or rerun without --skip-librealsense."
+  export realsense2_DIR="${realsense2_cmake_dir}"
+  log "Using local librealsense CMake config: ${realsense2_DIR}"
+}
+
 pyrealsense2_installed() {
   local python="${PYTHON_EXECUTABLE:-python3}"
   "${python}" -c 'import pyrealsense2' >/dev/null 2>&1
@@ -745,12 +747,13 @@ build_librealsense_from_source() {
     return
   fi
 
-  if [[ "${clean}" != "ON" ]] && librealsense_installed; then
+  if [[ "${clean}" != "ON" ]] && local_librealsense_installed; then
     if [[ "${build_python}" != "ON" ]] || pyrealsense2_installed; then
-      log "librealsense is already installed; skipping librealsense build"
+      log "local librealsense is already installed under /usr/local; skipping librealsense build"
+      prefer_local_librealsense
       return
     fi
-    log "librealsense is installed, but pyrealsense2 is missing; rebuilding Python bindings"
+    log "local librealsense is installed, but pyrealsense2 is missing; rebuilding Python bindings"
   fi
 
   configure_cuda
@@ -824,6 +827,7 @@ build_librealsense_from_source() {
   log "Installing librealsense"
   sudo cmake --install .
   sudo ldconfig
+  prefer_local_librealsense
   verify_pyrealsense2_binding
 }
 
@@ -941,12 +945,19 @@ ensure_cyclonedds_cmake_config() {
   die "CycloneDDS packages were installed, but CycloneDDSConfig.cmake is still missing. Set CycloneDDS_DIR explicitly and rerun."
 }
 
+realsense_ros_links_local_librealsense() {
+  local camera_lib="${workspace_dir}/build/realsense2_camera/librealsense2_camera.so"
+  [[ -f "${camera_lib}" ]] || return 1
+  ldd "${camera_lib}" 2>/dev/null | grep -q "librealsense2.*=> /usr/local/lib/"
+}
+
 build_realsense_ros_driver() {
   if [[ "${build_realsense_ros}" != "ON" ]]; then
     return
   fi
 
   source_ros
+  prefer_local_librealsense
   if [[ -f "${workspace_dir}/install/setup.bash" ]]; then
     set +u
     # shellcheck disable=SC1091
@@ -957,8 +968,15 @@ build_realsense_ros_driver() {
   if [[ "${clean}" != "ON" ]] &&
     ros2 pkg prefix realsense2_camera >/dev/null 2>&1 &&
     ros2 pkg prefix realsense2_camera_msgs >/dev/null 2>&1; then
-    log "realsense-ros is already installed; skipping realsense-ros build"
-    return
+    if realsense_ros_links_local_librealsense; then
+      log "realsense-ros is already installed and linked to /usr/local librealsense; skipping realsense-ros build"
+      return
+    fi
+    warn "realsense-ros is installed but not linked to /usr/local librealsense; rebuilding it"
+    rm -rf "${workspace_dir}/build/realsense2_camera" \
+      "${workspace_dir}/build/realsense2_camera_msgs" \
+      "${workspace_dir}/install/realsense2_camera" \
+      "${workspace_dir}/install/realsense2_camera_msgs"
   fi
 
   local src_dir="${workspace_dir}/src"
@@ -984,7 +1002,8 @@ build_realsense_ros_driver() {
 
   log "Installing rosdep dependencies for realsense-ros"
   cd "${workspace_dir}"
-  rosdep install --from-paths src/realsense-ros -i -y -r --rosdistro "${ros_distro}" || true
+  rosdep install --from-paths src/realsense-ros -i -y -r --rosdistro "${ros_distro}" \
+    --skip-keys "librealsense2" || true
 
   log "Building realsense-ros"
   local colcon_args=(
@@ -996,7 +1015,13 @@ build_realsense_ros_driver() {
   fi
   colcon build \
     "${colcon_args[@]}" \
-    --cmake-args -DCMAKE_BUILD_TYPE=Release
+    --cmake-args \
+      -DCMAKE_BUILD_TYPE=Release \
+      -Drealsense2_DIR="${realsense2_DIR}"
+
+  if ! realsense_ros_links_local_librealsense; then
+    die "realsense-ros built, but librealsense2_camera.so is not linked to /usr/local/lib/librealsense2. Check CMake cache and remove ros-humble-librealsense2 if necessary."
+  fi
 }
 
 ensure_workspace_link() {
@@ -1380,7 +1405,6 @@ run_jetson_setup_steps() {
   check_jetson_platform
   install_system_packages
   install_ros_packages
-  ensure_realsense_udev_rules
   build_librealsense_from_source
   build_realsense_ros_driver
   ensure_livox_sdk2
