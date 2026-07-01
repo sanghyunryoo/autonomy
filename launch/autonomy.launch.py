@@ -1,9 +1,10 @@
 from pathlib import Path
 
 import yaml
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -160,6 +161,71 @@ def _merge_frame(frame, prefix):
 def _camera_base_topic(data, binding, space):
     camera_name = str(binding.get("camera_name", "front_camera")).strip("/")
     return f"{_robot_topic_prefix(data)}/{camera_name}"
+
+
+def _stream_profile(data, prefix):
+    stream = data.get("stream", {})
+    if not isinstance(stream, dict):
+        stream = {}
+    width = int(stream.get(f"{prefix}_width", 0) or 0)
+    height = int(stream.get(f"{prefix}_height", 0) or 0)
+    fps = int(stream.get(f"{prefix}_fps", 0) or 0)
+    if width > 0 and height > 0 and fps > 0:
+        return f"{width}x{height}x{fps}"
+    return ""
+
+
+def _realsense_actions(data, simulation):
+    if simulation:
+        return []
+
+    try:
+        realsense_share = Path(get_package_share_directory("realsense2_camera"))
+    except PackageNotFoundError:
+        return [
+            LogInfo(msg="realsense2_camera package not found; RealSense cameras will not be launched."),
+        ]
+
+    launch_file = realsense_share / "launch" / "rs_launch.py"
+    namespace = _robot_namespace(data)
+    depth_profile = _stream_profile(data, "depth")
+    color_profile = _stream_profile(data, "color")
+    actions = []
+
+    for binding in _camera_bindings(data, "real"):
+        if not isinstance(binding, dict) or not _parse_bool(binding.get("enabled", True), default=True):
+            continue
+        camera_name = str(binding.get("camera_name", f"{binding.get('role', 'front')}_camera")).strip("/")
+        model = str(binding.get("model", "")).lower()
+        has_imu = model.endswith("i") or _parse_bool(binding.get("enable_imu", False), default=False)
+
+        launch_arguments = {
+            "camera_namespace": namespace,
+            "camera_name": camera_name,
+            "enable_depth": "true",
+            "enable_color": "true",
+            "enable_gyro": "true" if has_imu else "false",
+            "enable_accel": "true" if has_imu else "false",
+            "unite_imu_method": "2" if has_imu else "0",
+        }
+        usb_port_id = str(binding.get("usb_port_id", "")).strip()
+        serial_no = str(binding.get("serial_no", "")).strip()
+        if usb_port_id:
+            launch_arguments["usb_port_id"] = usb_port_id
+        if serial_no:
+            launch_arguments["serial_no"] = serial_no
+        if depth_profile:
+            launch_arguments["depth_module.depth_profile"] = depth_profile
+        if color_profile:
+            launch_arguments["rgb_camera.color_profile"] = color_profile
+
+        actions.append(LogInfo(msg=f"Launching RealSense camera {namespace}/{camera_name}."))
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(str(launch_file)),
+            launch_arguments=launch_arguments.items(),
+        ))
+
+    return actions
 
 
 def _merge_params(data, space):
@@ -428,6 +494,7 @@ def _make_stack(context, *args, **kwargs):
         LogInfo(msg="Map planning requested; current map backend is not implemented." if enable_map else "Mapless planning enabled."),
         LogInfo(msg="Local planner command output enabled." if enable_planning else "Local planner command output disabled."),
         LogInfo(msg=_dds_network_log_message(data)),
+        *_realsense_actions(data, simulation),
         _worker_node(
             "drive_mapper_node",
             [_mapper_params(data, space), {
