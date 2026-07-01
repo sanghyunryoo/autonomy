@@ -3,8 +3,7 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, LogInfo, OpaqueFunction
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -180,13 +179,12 @@ def _realsense_actions(data, simulation):
         return []
 
     try:
-        realsense_share = Path(get_package_share_directory("realsense2_camera"))
+        get_package_share_directory("realsense2_camera")
     except PackageNotFoundError:
         return [
             LogInfo(msg="realsense2_camera package not found; RealSense cameras will not be launched."),
         ]
 
-    launch_file = realsense_share / "launch" / "rs_launch.py"
     namespace = _robot_namespace(data)
     depth_profile = _stream_profile(data, "depth")
     color_profile = _stream_profile(data, "color")
@@ -199,36 +197,37 @@ def _realsense_actions(data, simulation):
         model = str(binding.get("model", "")).lower()
         has_imu = model.endswith("i") or _parse_bool(binding.get("enable_imu", False), default=False)
 
-        launch_arguments = {
+        parameters = {
             "camera_namespace": namespace,
             "camera_name": camera_name,
-            "enable_depth": "true",
-            "enable_color": "true",
-            "enable_gyro": "true" if has_imu else "false",
-            "enable_accel": "true" if has_imu else "false",
-            "unite_imu_method": "2" if has_imu else "0",
+            "enable_depth": True,
+            "enable_color": True,
+            "enable_gyro": has_imu,
+            "enable_accel": has_imu,
+            "enable_motion": has_imu,
+            "unite_imu_method": 2 if has_imu else 0,
         }
         usb_port_id = str(binding.get("usb_port_id", "")).strip()
         serial_no = str(binding.get("serial_no", "")).strip()
         if usb_port_id:
-            launch_arguments["usb_port_id"] = usb_port_id
+            parameters["usb_port_id"] = usb_port_id
         if serial_no:
-            launch_arguments["serial_no"] = serial_no
+            parameters["serial_no"] = serial_no
         if depth_profile:
-            launch_arguments["depth_module.depth_profile"] = depth_profile
+            parameters["depth_module.depth_profile"] = depth_profile
         if color_profile:
-            launch_arguments["rgb_camera.color_profile"] = color_profile
+            parameters["rgb_camera.color_profile"] = color_profile
 
         actions.append(LogInfo(msg=f"Launching RealSense camera {namespace}/{camera_name}."))
-        actions.append(GroupAction(
-            actions=[
-                IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(str(launch_file)),
-                    launch_arguments=launch_arguments.items(),
-                ),
-            ],
-            scoped=True,
-            forwarding=False,
+        actions.append(Node(
+            package="realsense2_camera",
+            executable="realsense2_camera_node",
+            namespace=namespace,
+            name=camera_name,
+            output="screen",
+            parameters=[parameters],
+            sigterm_timeout=NODE_SIGTERM_TIMEOUT,
+            sigkill_timeout=NODE_SIGKILL_TIMEOUT,
         ))
 
     return actions
