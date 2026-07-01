@@ -103,16 +103,38 @@ point_lio_lidar_adapter_node:
     output_topic: /point_lio/lidar
     ring: 0
     synthetic_scan_period: 0.1
+    estimate_scan_period: true
+    min_scan_period: 0.02
+    max_scan_period: 0.25
+    period_filter_alpha: 0.2
 
 point_lio:
   ros__parameters:
-    preprocess.lidar_type: 2
-    preprocess.scan_line: 1
+    use_imu_as_input: false
+    prop_at_freq_of_imu: true
+    check_satu: true
+    init_map_size: 10
+    space_down_sample: true
+    filter_size_surf: 0.5
+    filter_size_map: 0.5
+    cube_side_length: 1000.0
+    preprocess.lidar_type: 5
+    preprocess.scan_line: 40
+    preprocess.scan_rate: 10
     preprocess.timestamp_unit: 0
-    preprocess.blind: 0.05
-    point_filter_num: 1
+    preprocess.blind: 0.1
+    point_filter_num: 4
+    mapping.imu_en: true
+    mapping.imu_time_inte: 0.005
     mapping.acc_norm: 9.81
     mapping.extrinsic_est_en: false
+    mapping.satu_acc: 30.0
+    mapping.satu_gyro: 35.0
+    mapping.imu_meas_acc_cov: 0.1
+    mapping.imu_meas_omg_cov: 0.1
+    mapping.gyr_cov_input: 0.01
+    mapping.acc_cov_input: 0.1
+    mapping.lidar_meas_cov: 0.05
     publish.scan_bodyframe_pub_en: false
     runtime_pos_log_enable: false
 
@@ -121,6 +143,10 @@ point_lio_monitor_node:
     odom_topic: /aft_mapped_to_init
     cloud_topic: /cloud_registered
     timeout_sec: 3.0
+    max_abs_z: 2.0
+    max_abs_position: 30.0
+    max_linear_speed: 3.0
+    max_angular_speed: 3.0
 
 global_planner_node:
   ros__parameters:
@@ -133,6 +159,7 @@ global_planner_node:
 
 local_planner_node:
   ros__parameters:
+    enabled: false
     enable_map: false
     height_scan_topic: /elevation_mapping_node/local_terrain_map
     command_filter_topic: /command_filter

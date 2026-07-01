@@ -281,6 +281,10 @@ def _point_lio_adapter_params(data):
     params.setdefault("output_topic", "/point_lio/lidar")
     params.setdefault("ring", 0)
     params.setdefault("synthetic_scan_period", 0.1)
+    params.setdefault("estimate_scan_period", True)
+    params.setdefault("min_scan_period", 0.02)
+    params.setdefault("max_scan_period", 0.25)
+    params.setdefault("period_filter_alpha", 0.2)
     return params
 
 
@@ -290,15 +294,33 @@ def _point_lio_params(data):
     flat = {
         "common.lid_topic": adapter.get("output_topic", "/point_lio/lidar"),
         "common.imu_topic": f"{_robot_topic_prefix(data)}/livox/imu",
-        "preprocess.lidar_type": 2,
-        "preprocess.scan_line": 1,
+        "use_imu_as_input": False,
+        "prop_at_freq_of_imu": True,
+        "check_satu": True,
+        "init_map_size": 10,
+        "space_down_sample": True,
+        "filter_size_surf": 0.5,
+        "filter_size_map": 0.5,
+        "cube_side_length": 1000.0,
+        "preprocess.lidar_type": 5,
+        "preprocess.scan_line": 40,
+        "preprocess.scan_rate": 10,
         "preprocess.timestamp_unit": 0,
-        "preprocess.blind": 0.05,
-        "point_filter_num": 1,
+        "preprocess.blind": 0.1,
+        "point_filter_num": 4,
+        "mapping.imu_en": True,
+        "mapping.imu_time_inte": 0.005,
         "mapping.acc_norm": 9.81,
         "mapping.extrinsic_est_en": False,
+        "mapping.satu_acc": 30.0,
+        "mapping.satu_gyro": 35.0,
+        "mapping.imu_meas_acc_cov": 0.1,
+        "mapping.imu_meas_omg_cov": 0.1,
+        "mapping.gyr_cov_input": 0.01,
+        "mapping.acc_cov_input": 0.1,
+        "mapping.lidar_meas_cov": 0.05,
         "odom_header_frame_id": _robot_params(data).get("map_frame", "map"),
-        "odom_child_frame_id": f"{_robot_namespace(data)}/point_lio_base",
+        "odom_child_frame_id": _robot_frame(data, "base_link", "base_link"),
         "publish.scan_bodyframe_pub_en": False,
         "runtime_pos_log_enable": False,
     }
@@ -316,11 +338,13 @@ def _point_lio_monitor_params(data):
     return params
 
 
-def _planner_params(data, node_name, enable_map):
+def _planner_params(data, node_name, enable_map, enable_planning):
     params = _node_params(data, node_name)
     params["enable_map"] = enable_map
     if node_name == "global_planner_node":
         params.setdefault("target_frame", _robot_frame(data, "base_stabilized_link", "base_stabilized"))
+    if node_name == "local_planner_node":
+        params["enabled"] = enable_planning
     return params
 
 
@@ -387,6 +411,7 @@ def _make_stack(context, *args, **kwargs):
     requested_operation_mode = str(LaunchConfiguration("operation_mode").perform(context)).strip().lower() or "drive"
     operation_mode = "adas" if requested_operation_mode == "fsd" else requested_operation_mode
     enable_map = _parse_bool(LaunchConfiguration("enable_map").perform(context), default=False)
+    enable_planning = _parse_bool(LaunchConfiguration("enable_planning").perform(context), default=False)
     map_dir = LaunchConfiguration("map_dir").perform(context)
     data = _load_yaml(config_file)
     space = _binding_space(simulation_text)
@@ -401,6 +426,7 @@ def _make_stack(context, *args, **kwargs):
         LogInfo(msg=f"Autonomy {operation_mode.upper()} stack: mapper -> pointcloud merge -> elevation mapping."),
         LogInfo(msg="Point-LIO SLAM and mapless planners enabled for ADAS." if slam_enabled else "Point-LIO SLAM and planners disabled for DRIVE."),
         LogInfo(msg="Map planning requested; current map backend is not implemented." if enable_map else "Mapless planning enabled."),
+        LogInfo(msg="Local planner command output enabled." if enable_planning else "Local planner command output disabled."),
         LogInfo(msg=_dds_network_log_message(data)),
         _worker_node(
             "drive_mapper_node",
@@ -463,13 +489,13 @@ def _make_stack(context, *args, **kwargs):
             ),
             _worker_node(
                 "global_planner_node",
-                [_planner_params(data, "global_planner_node", enable_map), use_sim_time],
+                [_planner_params(data, "global_planner_node", enable_map, enable_planning), use_sim_time],
                 name="global_planner_node",
                 output="screen",
             ),
             _worker_node(
                 "local_planner_node",
-                [_planner_params(data, "local_planner_node", enable_map), use_sim_time],
+                [_planner_params(data, "local_planner_node", enable_map, enable_planning), use_sim_time],
                 name="local_planner_node",
                 output="screen",
             ),
@@ -492,6 +518,7 @@ def generate_launch_description():
         DeclareLaunchArgument("simulation", default_value="false"),
         DeclareLaunchArgument("operation_mode", default_value="drive"),
         DeclareLaunchArgument("enable_map", default_value="false"),
+        DeclareLaunchArgument("enable_planning", default_value="false"),
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument(
             "map_dir",

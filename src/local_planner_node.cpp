@@ -41,6 +41,7 @@ public:
   : Node("local_planner_node")
   {
     enable_map_ = declare_parameter<bool>("enable_map", false);
+    enabled_ = declare_parameter<bool>("enabled", false);
     height_scan_topic_ = declare_parameter<std::string>(
       "height_scan_topic", "/elevation_mapping_node/local_terrain_map");
     command_filter_topic_ = declare_parameter<std::string>("command_filter_topic", "/command_filter");
@@ -133,6 +134,12 @@ private:
     if (enable_map_) {
       publishStop();
       heartbeat.data = "error:map_local_planning_not_supported";
+      heartbeat_pub_->publish(heartbeat);
+      return;
+    }
+    if (!enabled_) {
+      publishStop();
+      heartbeat.data = "ready:disabled";
       heartbeat_pub_->publish(heartbeat);
       return;
     }
@@ -427,6 +434,7 @@ private:
   }
 
   bool enable_map_{false};
+  bool enabled_{false};
   std::string height_scan_topic_;
   std::string command_filter_topic_;
   std::string goal_topic_;
