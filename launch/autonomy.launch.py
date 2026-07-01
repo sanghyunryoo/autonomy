@@ -228,6 +228,7 @@ def _realsense_actions(data, simulation):
                 ),
             ],
             scoped=True,
+            forwarding=False,
         ))
 
     return actions
