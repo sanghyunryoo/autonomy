@@ -267,6 +267,63 @@ def _dds_network_log_message(data):
     return f"DDS network mode: {mode or 'wireless'}"
 
 
+def _point_lio_config_path(data):
+    params = _node_params(data, "point_lio")
+    value = params.get("config_path", "")
+    if value:
+        return _resolve_package_path(value)
+    return str(Path(get_package_share_directory("point_lio")) / "config" / "mid360.yaml")
+
+
+def _point_lio_adapter_params(data):
+    params = _node_params(data, "point_lio_lidar_adapter_node")
+    params.setdefault("input_topic", f"{_robot_topic_prefix(data)}/livox/lidar")
+    params.setdefault("output_topic", "/point_lio/lidar")
+    params.setdefault("ring", 0)
+    params.setdefault("synthetic_scan_period", 0.1)
+    return params
+
+
+def _point_lio_params(data):
+    params = _node_params(data, "point_lio")
+    adapter = _point_lio_adapter_params(data)
+    flat = {
+        "common.lid_topic": adapter.get("output_topic", "/point_lio/lidar"),
+        "common.imu_topic": f"{_robot_topic_prefix(data)}/livox/imu",
+        "preprocess.lidar_type": 2,
+        "preprocess.scan_line": 1,
+        "preprocess.timestamp_unit": 0,
+        "preprocess.blind": 0.05,
+        "point_filter_num": 1,
+        "mapping.acc_norm": 9.81,
+        "mapping.extrinsic_est_en": False,
+        "odom_header_frame_id": _robot_params(data).get("map_frame", "map"),
+        "odom_child_frame_id": f"{_robot_namespace(data)}/point_lio_base",
+        "publish.scan_bodyframe_pub_en": False,
+        "runtime_pos_log_enable": False,
+    }
+    for key, value in params.items():
+        if key != "config_path":
+            flat[key] = value
+    return flat
+
+
+def _point_lio_monitor_params(data):
+    params = _node_params(data, "point_lio_monitor_node")
+    params.setdefault("odom_topic", "/aft_mapped_to_init")
+    params.setdefault("cloud_topic", "/cloud_registered")
+    params.setdefault("timeout_sec", 3.0)
+    return params
+
+
+def _planner_params(data, node_name, enable_map):
+    params = _node_params(data, node_name)
+    params["enable_map"] = enable_map
+    if node_name == "global_planner_node":
+        params.setdefault("target_frame", _robot_frame(data, "base_stabilized_link", "base_stabilized"))
+    return params
+
+
 def _worker_node(
     executable,
     parameters,
@@ -292,6 +349,24 @@ def _worker_node(
 def _managed_nodes():
     return {
         "managed_nodes.drive": ["drive_mapper_node", "pointcloud_merge_node", "elevation_mapping_node"],
+        "managed_nodes.adas": [
+            "drive_mapper_node",
+            "pointcloud_merge_node",
+            "elevation_mapping_node",
+            "point_lio_lidar_adapter_node",
+            "point_lio_monitor_node",
+            "global_planner_node",
+            "local_planner_node",
+        ],
+        "managed_nodes.fsd": [
+            "drive_mapper_node",
+            "pointcloud_merge_node",
+            "elevation_mapping_node",
+            "point_lio_lidar_adapter_node",
+            "point_lio_monitor_node",
+            "global_planner_node",
+            "local_planner_node",
+        ],
     }
 
 
@@ -309,14 +384,23 @@ def _make_stack(context, *args, **kwargs):
     simulation_text = LaunchConfiguration("simulation").perform(context)
     simulation = _parse_bool(simulation_text, default=False)
     launch_rviz = _parse_bool(LaunchConfiguration("rviz").perform(context), default=False)
+    requested_operation_mode = str(LaunchConfiguration("operation_mode").perform(context)).strip().lower() or "drive"
+    operation_mode = "adas" if requested_operation_mode == "fsd" else requested_operation_mode
+    enable_map = _parse_bool(LaunchConfiguration("enable_map").perform(context), default=False)
     map_dir = LaunchConfiguration("map_dir").perform(context)
     data = _load_yaml(config_file)
     space = _binding_space(simulation_text)
     use_sim_time = {"use_sim_time": LaunchConfiguration("simulation")}
+    slam_enabled = operation_mode == "adas"
+    if operation_mode not in ("drive", "adas"):
+        return [
+            LogInfo(msg=f"{requested_operation_mode.upper()} currently not supported. Supported modes: DRIVE, ADAS. FSD is an ADAS alias."),
+        ]
 
     actions = [
-        LogInfo(msg="Autonomy DRIVE stack: mapper -> pointcloud merge -> elevation mapping."),
-        LogInfo(msg="ADAS, FSD, TRACKING, and MAPPING are currently not supported."),
+        LogInfo(msg=f"Autonomy {operation_mode.upper()} stack: mapper -> pointcloud merge -> elevation mapping."),
+        LogInfo(msg="Point-LIO SLAM and mapless planners enabled for ADAS." if slam_enabled else "Point-LIO SLAM and planners disabled for DRIVE."),
+        LogInfo(msg="Map planning requested; current map backend is not implemented." if enable_map else "Mapless planning enabled."),
         LogInfo(msg=_dds_network_log_message(data)),
         _worker_node(
             "drive_mapper_node",
@@ -340,9 +424,9 @@ def _make_stack(context, *args, **kwargs):
             [
                 _node_params(data, "autonomy_manager"),
                 {
-                    "startup_mode": "DRIVE",
+                    "startup_mode": operation_mode.upper(),
                     "speed_limit": 0.0,
-                    "enable_ai": False,
+                    "enable_ai": slam_enabled,
                     "segmentation": False,
                     "map_dir": map_dir,
                     **_managed_nodes(),
@@ -352,6 +436,44 @@ def _make_stack(context, *args, **kwargs):
             output="screen",
         ),
     ]
+    if requested_operation_mode == "fsd":
+        actions.insert(1, LogInfo(msg="FSD requested as ADAS alias."))
+
+    if slam_enabled:
+        actions.extend([
+            _worker_node(
+                "point_lio_lidar_adapter_node",
+                [_point_lio_adapter_params(data), use_sim_time],
+                name="point_lio_lidar_adapter_node",
+                output="screen",
+            ),
+            _worker_node(
+                "pointlio_mapping",
+                [_point_lio_config_path(data), _point_lio_params(data), use_sim_time],
+                name="laserMapping",
+                package="point_lio",
+                output="screen",
+                arguments=[],
+            ),
+            _worker_node(
+                "point_lio_monitor_node",
+                [_point_lio_monitor_params(data), use_sim_time],
+                name="point_lio_monitor_node",
+                output="screen",
+            ),
+            _worker_node(
+                "global_planner_node",
+                [_planner_params(data, "global_planner_node", enable_map), use_sim_time],
+                name="global_planner_node",
+                output="screen",
+            ),
+            _worker_node(
+                "local_planner_node",
+                [_planner_params(data, "local_planner_node", enable_map), use_sim_time],
+                name="local_planner_node",
+                output="screen",
+            ),
+        ])
 
     rviz = _rviz_action(data, use_sim_time, launch_rviz)
     if rviz is not None:
@@ -368,11 +490,13 @@ def generate_launch_description():
             description="Single autonomy DRIVE stack parameter file.",
         ),
         DeclareLaunchArgument("simulation", default_value="false"),
+        DeclareLaunchArgument("operation_mode", default_value="drive"),
+        DeclareLaunchArgument("enable_map", default_value="false"),
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument(
             "map_dir",
             default_value=str(package_share / "resources" / "map"),
-            description="Reserved map directory; non-DRIVE modes are currently not supported.",
+            description="Map directory for ADAS/FSD SLAM consumers.",
         ),
         OpaqueFunction(function=_make_stack),
     ])

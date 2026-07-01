@@ -102,18 +102,33 @@ target_link_libraries(autonomy_manager_node "${cpp_typesupport_target}")
 add_executable(global_planner_node
   src/global_planner_node.cpp
 )
-ament_target_dependencies(global_planner_node rclcpp std_msgs)
+ament_target_dependencies(global_planner_node geometry_msgs nav_msgs rclcpp std_msgs)
 
 add_executable(local_planner_node
   src/local_planner_node.cpp
+  src/dds_linear_velocity_publisher.cpp
 )
-ament_target_dependencies(local_planner_node rclcpp std_msgs)
+target_include_directories(local_planner_node PRIVATE include)
+ament_target_dependencies(local_planner_node core geometry_msgs rclcpp std_msgs)
+target_link_libraries(local_planner_node "${cpp_typesupport_target}" autonomy_dds_types CycloneDDS::ddsc)
+
+add_executable(point_lio_lidar_adapter_node
+  src/point_lio_lidar_adapter_node.cpp
+)
+ament_target_dependencies(point_lio_lidar_adapter_node rclcpp sensor_msgs std_msgs)
+
+add_executable(point_lio_monitor_node
+  src/point_lio_monitor_node.cpp
+)
+ament_target_dependencies(point_lio_monitor_node nav_msgs rclcpp sensor_msgs std_msgs)
 
 install(TARGETS
   autonomy_manager_node
   drive_mapper_node
   global_planner_node
   local_planner_node
+  point_lio_lidar_adapter_node
+  point_lio_monitor_node
   pointcloud_merge_node
   elevation_mapping_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}

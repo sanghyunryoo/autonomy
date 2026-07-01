@@ -88,9 +88,7 @@ bool validModeText(const std::string & text)
 
 bool currentlyUnsupportedMode(const std::int8_t mode)
 {
-  return mode == AutonomyStateMsg::ADAS ||
-         mode == AutonomyStateMsg::FSD ||
-         mode == AutonomyStateMsg::MAPPING ||
+  return mode == AutonomyStateMsg::MAPPING ||
          mode == AutonomyStateMsg::TRACKING;
 }
 

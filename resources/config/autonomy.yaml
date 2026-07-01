@@ -98,6 +98,65 @@ pointcloud_merge_node:
       livox:
         enabled: true
 
+point_lio_lidar_adapter_node:
+  ros__parameters:
+    output_topic: /point_lio/lidar
+    ring: 0
+    synthetic_scan_period: 0.1
+
+point_lio:
+  ros__parameters:
+    preprocess.lidar_type: 2
+    preprocess.scan_line: 1
+    preprocess.timestamp_unit: 0
+    preprocess.blind: 0.05
+    point_filter_num: 1
+    mapping.acc_norm: 9.81
+    mapping.extrinsic_est_en: false
+    publish.scan_bodyframe_pub_en: false
+    runtime_pos_log_enable: false
+
+point_lio_monitor_node:
+  ros__parameters:
+    odom_topic: /aft_mapped_to_init
+    cloud_topic: /cloud_registered
+    timeout_sec: 3.0
+
+global_planner_node:
+  ros__parameters:
+    enable_map: false
+    local_goal_topic: /global_planner_node/local_goal
+    path_topic: /global_planner_node/path
+    lookahead_distance: 1.2
+    lateral_offset: 0.0
+    publish_rate_hz: 10.0
+
+local_planner_node:
+  ros__parameters:
+    enable_map: false
+    height_scan_topic: /elevation_mapping_node/local_terrain_map
+    command_filter_topic: /command_filter
+    goal_topic: /global_planner_node/local_goal
+    cmd_vel_topic: /local_planner_node/cmd_vel
+    publish_rate_hz: 20.0
+    max_vx: 0.30
+    max_vy: 0.15
+    max_wz: 0.45
+    min_forward_vx: 0.04
+    robot_radius: 0.32
+    rollout_time: 1.0
+    rollout_dt: 0.15
+    obstacle_height_threshold: 0.18
+    step_height_threshold: 0.10
+    unknown_is_blocked: false
+    stale_timeout_sec: 1.0
+    dds:
+      enabled: true
+      domain_id: 1
+      lin_vel:
+        topic: lin_vel
+        type: core_dds::LinearVelocity
+
 elevation_mapping_node:
   ros__parameters:
     input_cloud_topic: /pointcloud_merge_node/merged_points
@@ -245,6 +304,8 @@ autonomy_manager:
     publish_rate_hz: 10.0
     managed_nodes:
       drive: [drive_mapper_node, pointcloud_merge_node, elevation_mapping_node]
+      adas: [drive_mapper_node, pointcloud_merge_node, elevation_mapping_node, point_lio_lidar_adapter_node, point_lio_monitor_node, global_planner_node, local_planner_node]
+      fsd: [drive_mapper_node, pointcloud_merge_node, elevation_mapping_node, point_lio_lidar_adapter_node, point_lio_monitor_node, global_planner_node, local_planner_node]
 
 rviz2:
   ros__parameters:
