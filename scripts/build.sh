@@ -1031,12 +1031,16 @@ build_realsense_ros_driver() {
     --cmake-args \
       -DCMAKE_BUILD_TYPE=Release \
       -Drealsense2_DIR="${realsense2_DIR}" \
+      -DCMAKE_SKIP_RPATH=FALSE \
+      -DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE \
       -DCMAKE_BUILD_RPATH=/usr/local/lib \
       -DCMAKE_INSTALL_RPATH=/usr/local/lib \
-      -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=FALSE
+      -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=FALSE \
+      -DCMAKE_SHARED_LINKER_FLAGS=-Wl,--disable-new-dtags \
+      -DCMAKE_EXE_LINKER_FLAGS=-Wl,--disable-new-dtags
 
   if ! realsense_ros_runtime_links_local_librealsense; then
-    die "realsense-ros built, but librealsense2_camera.so does not resolve librealsense2 from /usr/local/lib when ROS library paths are active. Check RPATH and remove ros-humble-librealsense2 if necessary."
+    die "realsense-ros built, but librealsense2_camera.so does not resolve librealsense2 from /usr/local/lib when ROS library paths are active. Check RPATH with readelf -d and remove ros-humble-librealsense2 if necessary."
   fi
 }
 
