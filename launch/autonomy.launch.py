@@ -3,7 +3,7 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, LogInfo, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -220,9 +220,14 @@ def _realsense_actions(data, simulation):
             launch_arguments["rgb_camera.color_profile"] = color_profile
 
         actions.append(LogInfo(msg=f"Launching RealSense camera {namespace}/{camera_name}."))
-        actions.append(IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(str(launch_file)),
-            launch_arguments=launch_arguments.items(),
+        actions.append(GroupAction(
+            actions=[
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(str(launch_file)),
+                    launch_arguments=launch_arguments.items(),
+                ),
+            ],
+            scoped=True,
         ))
 
     return actions
