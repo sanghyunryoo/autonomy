@@ -951,6 +951,19 @@ realsense_ros_links_local_librealsense() {
   ldd "${camera_lib}" 2>/dev/null | grep -q "librealsense2.*=> /usr/local/lib/"
 }
 
+realsense_ros_runtime_links_local_librealsense() {
+  local camera_lib="${workspace_dir}/build/realsense2_camera/librealsense2_camera.so"
+  [[ -f "${camera_lib}" ]] || return 1
+
+  local ros_lib_dir="/opt/ros/${ros_distro}/lib/aarch64-linux-gnu"
+  if [[ ! -d "${ros_lib_dir}" ]]; then
+    ros_lib_dir="/opt/ros/${ros_distro}/lib"
+  fi
+
+  LD_LIBRARY_PATH="${ros_lib_dir}:${LD_LIBRARY_PATH:-}" \
+    ldd "${camera_lib}" 2>/dev/null | grep -q "librealsense2.*=> /usr/local/lib/"
+}
+
 build_realsense_ros_driver() {
   if [[ "${build_realsense_ros}" != "ON" ]]; then
     return
@@ -968,7 +981,7 @@ build_realsense_ros_driver() {
   if [[ "${clean}" != "ON" ]] &&
     ros2 pkg prefix realsense2_camera >/dev/null 2>&1 &&
     ros2 pkg prefix realsense2_camera_msgs >/dev/null 2>&1; then
-    if realsense_ros_links_local_librealsense; then
+    if realsense_ros_runtime_links_local_librealsense; then
       log "realsense-ros is already installed and linked to /usr/local librealsense; skipping realsense-ros build"
       return
     fi
@@ -1017,10 +1030,13 @@ build_realsense_ros_driver() {
     "${colcon_args[@]}" \
     --cmake-args \
       -DCMAKE_BUILD_TYPE=Release \
-      -Drealsense2_DIR="${realsense2_DIR}"
+      -Drealsense2_DIR="${realsense2_DIR}" \
+      -DCMAKE_BUILD_RPATH=/usr/local/lib \
+      -DCMAKE_INSTALL_RPATH=/usr/local/lib \
+      -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=FALSE
 
-  if ! realsense_ros_links_local_librealsense; then
-    die "realsense-ros built, but librealsense2_camera.so is not linked to /usr/local/lib/librealsense2. Check CMake cache and remove ros-humble-librealsense2 if necessary."
+  if ! realsense_ros_runtime_links_local_librealsense; then
+    die "realsense-ros built, but librealsense2_camera.so does not resolve librealsense2 from /usr/local/lib when ROS library paths are active. Check RPATH and remove ros-humble-librealsense2 if necessary."
   fi
 }
 
