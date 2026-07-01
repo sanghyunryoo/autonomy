@@ -118,6 +118,29 @@ apt_package_available() {
   apt-cache show "$1" >/dev/null 2>&1
 }
 
+ensure_realsense_udev_rules() {
+  log "Ensuring RealSense udev rules"
+
+  if apt_package_installed librealsense2-udev-rules; then
+    log "librealsense2-udev-rules is already installed; skipping apt install"
+  else
+    sudo apt-get update
+    if apt_package_available librealsense2-udev-rules; then
+      apt_install librealsense2-udev-rules
+    elif [[ -x "${librealsense_src_dir}/scripts/setup_udev_rules.sh" ]]; then
+      warn "librealsense2-udev-rules apt package is unavailable; applying rules from ${librealsense_src_dir}"
+      sudo "${librealsense_src_dir}/scripts/setup_udev_rules.sh"
+    else
+      warn "librealsense2-udev-rules is unavailable and no librealsense source udev script was found."
+      warn "RealSense IMU/HID access may fail until udev rules are installed."
+    fi
+  fi
+
+  sudo udevadm control --reload-rules || true
+  sudo udevadm trigger || true
+  warn "If a RealSense camera is already connected, unplug and replug it so HID/IMU permissions refresh."
+}
+
 path_list_contains() {
   local value="${1:-}"
   local needle="${2:-}"
@@ -1349,6 +1372,7 @@ run_jetson_setup_steps() {
   check_jetson_platform
   install_system_packages
   install_ros_packages
+  ensure_realsense_udev_rules
   build_librealsense_from_source
   build_realsense_ros_driver
   ensure_livox_sdk2
