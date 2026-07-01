@@ -127,9 +127,17 @@ ensure_realsense_udev_rules() {
     sudo apt-get update
     if apt_package_available librealsense2-udev-rules; then
       apt_install librealsense2-udev-rules
+    elif [[ -f "${librealsense_src_dir}/config/99-realsense-libusb.rules" ]]; then
+      warn "librealsense2-udev-rules apt package is unavailable; installing rules from ${librealsense_src_dir}"
+      sudo install -m 0644 \
+        "${librealsense_src_dir}/config/99-realsense-libusb.rules" \
+        /etc/udev/rules.d/99-realsense-libusb.rules
     elif [[ -x "${librealsense_src_dir}/scripts/setup_udev_rules.sh" ]]; then
       warn "librealsense2-udev-rules apt package is unavailable; applying rules from ${librealsense_src_dir}"
-      sudo "${librealsense_src_dir}/scripts/setup_udev_rules.sh"
+      (
+        cd "${librealsense_src_dir}"
+        sudo ./scripts/setup_udev_rules.sh
+      )
     else
       warn "librealsense2-udev-rules is unavailable and no librealsense source udev script was found."
       warn "RealSense IMU/HID access may fail until udev rules are installed."
