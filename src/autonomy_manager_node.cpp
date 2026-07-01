@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
-#include <filesystem>
 #include <iomanip>
 #include <memory>
 #include <sstream>
@@ -87,6 +86,14 @@ bool validModeText(const std::string & text)
          value == "MAPPING" || value == "TRACKING";
 }
 
+bool currentlyUnsupportedMode(const std::int8_t mode)
+{
+  return mode == AutonomyStateMsg::ADAS ||
+         mode == AutonomyStateMsg::FSD ||
+         mode == AutonomyStateMsg::MAPPING ||
+         mode == AutonomyStateMsg::TRACKING;
+}
+
 bool reportRequestsDrive(const std::uint8_t state, const std::string & name)
 {
   const auto value = upper(name);
@@ -158,45 +165,19 @@ public:
       std::vector<std::string>{});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.drive",
-      {"realsense_usb_mapper", "livox_monitor_node", "pointcloud_merge_node", "elevation_mapping_node"});
+      {"drive_mapper_node", "pointcloud_merge_node", "elevation_mapping_node"});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.adas",
-      {
-        "realsense_usb_mapper",
-        "livox_monitor_node",
-        "pointcloud_merge_node",
-        "elevation_mapping_node",
-        "point_lio_monitor_node",
-        "localization_pose_adapter_node",
-        "global_planner_node",
-        "goal_pose_to_nav2_action_node",
-        "cmd_vel_to_command_user_node",
-      });
+      std::vector<std::string>{});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.fsd",
-      {
-        "realsense_usb_mapper",
-        "livox_monitor_node",
-        "pointcloud_merge_node",
-        "elevation_mapping_node",
-        "point_lio_monitor_node",
-        "localization_pose_adapter_node",
-        "global_planner_node",
-        "goal_pose_to_nav2_action_node",
-        "cmd_vel_to_command_user_node",
-      });
+      std::vector<std::string>{});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.mapping",
       std::vector<std::string>{});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.tracking",
-      {
-        "realsense_usb_mapper",
-        "pointcloud_merge_node",
-        "elevation_mapping_node",
-        "ai_detection_node",
-        "tracking_follower_node",
-      });
+      std::vector<std::string>{});
 
     mode_ = parseMode(get_parameter("startup_mode").as_string());
     speed_limit_ = static_cast<float>(get_parameter("speed_limit").as_double());
@@ -287,16 +268,9 @@ private:
 
     const auto requested_mode = parseMode(request->operation_mode);
 
-    if (requested_mode == AutonomyStateMsg::FSD && !mapReady()) {
+    if (currentlyUnsupportedMode(requested_mode)) {
       response->accepted = false;
-      response->message = "FSD requires at least one map file in map_dir: " + map_dir_;
-      error_code_ = 1001;
-      return;
-    }
-    if (requested_mode == AutonomyStateMsg::TRACKING && !request->enable_ai) {
-      response->accepted = false;
-      response->message = "TRACKING requires enable_ai=true";
-      error_code_ = 1002;
+      response->message = modeName(requested_mode) + " currently not supported";
       return;
     }
 
@@ -557,22 +531,8 @@ private:
   std::vector<std::string> expectedNodesForCurrentMode() const
   {
     const auto expected_it = managed_nodes_.find(mode_);
-    std::vector<std::string> expected =
+    return
       expected_it == managed_nodes_.end() ? std::vector<std::string>{} : expected_it->second;
-
-    if ((mode_ == AutonomyStateMsg::ADAS || mode_ == AutonomyStateMsg::FSD ||
-      mode_ == AutonomyStateMsg::TRACKING) && ai_enabled_)
-    {
-      if (std::find(expected.begin(), expected.end(), "ai_detection_node") == expected.end()) {
-        expected.push_back("ai_detection_node");
-      }
-    }
-    if (!ai_enabled_) {
-      expected.erase(
-        std::remove(expected.begin(), expected.end(), "ai_detection_node"),
-        expected.end());
-    }
-    return expected;
   }
 
   bool reportControlsMode() const
@@ -629,7 +589,6 @@ private:
       requested_segmentation_enabled_ = segmentation_enabled_;
     }
     estop_active_ = true;
-    mode_ = AutonomyStateMsg::IDLE;
     speed_limit_ = 0.0F;
     ai_enabled_ = false;
     segmentation_enabled_ = false;
@@ -643,27 +602,6 @@ private:
     applyRequestedMode();
     error_code_ = comm_fault_ ? 3001 : 0;
     error_active_ = mode_ == AutonomyStateMsg::ERROR || comm_fault_;
-  }
-
-  bool mapReady() const
-  {
-    if (map_dir_.empty()) {
-      return false;
-    }
-    const std::filesystem::path path(map_dir_);
-    if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
-      return false;
-    }
-    for (const auto & entry : std::filesystem::directory_iterator(path)) {
-      if (!entry.is_regular_file()) {
-        continue;
-      }
-      const auto name = entry.path().filename().string();
-      if (!name.empty() && name.front() != '.') {
-        return true;
-      }
-    }
-    return false;
   }
 
   std::int8_t mode_{AutonomyStateMsg::DRIVE};

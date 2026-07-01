@@ -43,9 +43,14 @@ void PointCloudMergerNode::loadParameters()
   const std::vector<std::string> default_camera_names;
   const auto camera_names =
     declare_parameter<std::vector<std::string>>("camera_names", default_camera_names);
+  const std::vector<std::string> default_lidar_names;
+  const auto lidar_names =
+    declare_parameter<std::vector<std::string>>("lidar_names", default_lidar_names);
 
   cameras_.clear();
   cameras_.reserve(camera_names.size());
+  lidars_.clear();
+  lidars_.reserve(lidar_names.size());
 
   for (const auto & name : camera_names) {
     CameraSource camera;
@@ -55,10 +60,13 @@ void PointCloudMergerNode::loadParameters()
       "cameras." + name + ".depth_topic", "/" + name + "/depth/image_rect");
     camera.camera_info_topic = declare_parameter<std::string>(
       "cameras." + name + ".camera_info_topic", "/" + name + "/depth/camera_info");
-    camera.mount_frame = declare_parameter<std::string>(
-      "cameras." + name + ".mount_frame", "");
-    camera.optical_frame = declare_parameter<std::string>(
-      "cameras." + name + ".optical_frame", "");
+    camera.frame = declare_parameter<std::string>("cameras." + name + ".frame", "");
+    if (camera.frame.empty()) {
+      camera.frame = declare_parameter<std::string>("cameras." + name + ".optical_frame", "");
+    }
+    if (camera.frame.empty()) {
+      camera.frame = declare_parameter<std::string>("cameras." + name + ".mount_frame", "");
+    }
 
     if (!camera.enabled) {
       RCLCPP_INFO(get_logger(), "Camera '%s' is disabled; skipping subscriptions and merge", name.c_str());
@@ -68,8 +76,26 @@ void PointCloudMergerNode::loadParameters()
     cameras_.push_back(std::move(camera));
   }
 
-  if (cameras_.empty()) {
-    throw std::runtime_error("No enabled cameras. Check camera_names and cameras.<name>.enabled parameters");
+  for (const auto & name : lidar_names) {
+    LidarSource lidar;
+    lidar.name = name;
+    lidar.enabled = declare_parameter<bool>("lidars." + name + ".enabled", true);
+    lidar.cloud_topic = declare_parameter<std::string>(
+      "lidars." + name + ".cloud_topic", "/" + name + "/points");
+    lidar.frame_id = declare_parameter<std::string>(
+      "lidars." + name + ".frame_id", "");
+
+    if (!lidar.enabled) {
+      RCLCPP_INFO(get_logger(), "Lidar '%s' is disabled; skipping subscriptions and merge", name.c_str());
+      continue;
+    }
+
+    lidars_.push_back(std::move(lidar));
+  }
+
+  if (cameras_.empty() && lidars_.empty()) {
+    throw std::runtime_error(
+      "No enabled cloud sources. Check camera_names/cameras and lidar_names/lidars parameters");
   }
 }
 
@@ -113,12 +139,27 @@ void PointCloudMergerNode::createIo()
 
     RCLCPP_INFO(
       get_logger(),
-      "Subscribing to camera '%s' depth: %s camera_info: %s mount_frame: %s optical_frame: %s",
+      "Subscribing to camera '%s' depth: %s camera_info: %s frame: %s",
       camera.name.c_str(),
       camera.depth_topic.c_str(),
       camera.camera_info_topic.c_str(),
-      camera.mount_frame.c_str(),
-      camera.optical_frame.c_str());
+      camera.frame.c_str());
+  }
+
+  for (const auto & lidar : lidars_) {
+    lidar_subscriptions_.push_back(create_subscription<PointCloudMsg>(
+      lidar.cloud_topic,
+      input_qos,
+      [this, lidar_name = lidar.name](PointCloudMsg::SharedPtr msg) {
+        onLidarCloud(lidar_name, std::move(msg));
+      }));
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Subscribing to lidar '%s' cloud: %s frame_override: %s",
+      lidar.name.c_str(),
+      lidar.cloud_topic.c_str(),
+      lidar.frame_id.c_str());
   }
 
   auto output_qos = rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile();
@@ -141,7 +182,7 @@ void PointCloudMergerNode::publishHeartbeat()
   if (!processingActive()) {
     msg.data = "standby";
   } else {
-    msg.data = cameras_.empty() ? "degraded:no_cameras" : "ready";
+    msg.data = (cameras_.empty() && lidars_.empty()) ? "degraded:no_sources" : "ready";
   }
   heartbeat_pub_->publish(msg);
 }
@@ -160,11 +201,7 @@ bool PointCloudMergerNode::processingActive() const
   if (!has_autonomy_state_) {
     return false;
   }
-  return autonomy_mode_ == autonomy::msg::AutonomyState::DRIVE ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::ADAS ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::FSD ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::MAPPING ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::TRACKING;
+  return autonomy_mode_ == autonomy::msg::AutonomyState::DRIVE;
 }
 
 void PointCloudMergerNode::onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg)
@@ -193,11 +230,28 @@ void PointCloudMergerNode::onDepth(const std::string & camera_name, ImageMsgPtr 
   latest_depths_[camera_name] = std::move(msg);
 }
 
+void PointCloudMergerNode::onLidarCloud(const std::string & lidar_name, PointCloudMsg::SharedPtr msg)
+{
+  if (!processingActive()) {
+    return;
+  }
+
+  RCLCPP_DEBUG(
+    get_logger(),
+    "Received lidar cloud='%s' frame='%s' points=%u",
+    lidar_name.c_str(),
+    msg->header.frame_id.c_str(),
+    msg->width * msg->height);
+
+  latest_lidar_clouds_[lidar_name] = std::move(msg);
+}
+
 void PointCloudMergerNode::onPublishTimer()
 {
   if (!processingActive()) {
     latest_depths_.clear();
     latest_camera_infos_.clear();
+    latest_lidar_clouds_.clear();
     return;
   }
 
@@ -289,6 +343,41 @@ PointCloudMergerNode::PointCloudMsg PointCloudMergerNode::mergeLatestClouds(
     }
   }
 
+  for (const auto & lidar : lidars_) {
+    const auto cloud_it = latest_lidar_clouds_.find(lidar.name);
+    if (cloud_it == latest_lidar_clouds_.end() || !cloud_it->second) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Waiting for lidar cloud source='%s' topic='%s'",
+        lidar.name.c_str(),
+        lidar.cloud_topic.c_str());
+      continue;
+    }
+
+    const auto & cloud = *cloud_it->second;
+    const auto input_stamp = rclcpp::Time(cloud.header.stamp);
+    const auto age_sec = isUsableStamp(input_stamp) ? (now - input_stamp).seconds() : 0.0;
+
+    if (max_cloud_age_sec_ > 0.0 && age_sec > max_cloud_age_sec_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Dropping stale lidar cloud source='%s' frame='%s' age=%.3fs max_age=%.3fs",
+        lidar.name.c_str(),
+        cloud.header.frame_id.c_str(),
+        age_sec,
+        max_cloud_age_sec_);
+      continue;
+    }
+
+    if (appendLidarAsTransformedCloud(lidar, cloud, output, now)) {
+      ++valid_cloud_count;
+    }
+  }
+
   if (valid_cloud_count == 0) {
     modifier.resize(0);
   }
@@ -340,36 +429,22 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
   }
 
   const std::string source_frame =
-    camera.optical_frame.empty() ? depth.header.frame_id : camera.optical_frame;
+    camera.frame.empty() ? depth.header.frame_id : camera.frame;
 
-  if (!camera.optical_frame.empty() && camera.optical_frame != depth.header.frame_id) {
+  if (!camera.frame.empty() && camera.frame != depth.header.frame_id) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
       *get_clock(),
       5000,
-      "Depth frame_id camera='%s' is '%s', but using configured optical_frame '%s'",
+      "Depth frame_id camera='%s' is '%s', but using configured frame '%s'",
       camera.name.c_str(),
       depth.header.frame_id.c_str(),
-      camera.optical_frame.c_str());
+      camera.frame.c_str());
   }
 
   geometry_msgs::msg::TransformStamped transform_msg;
 
-  try {
-    transform_msg = tf_buffer_.lookupTransform(
-      target_frame_,
-      source_frame,
-      depth.header.stamp,
-      std::chrono::milliseconds(20));
-  } catch (const tf2::TransformException & ex) {
-    RCLCPP_WARN_THROTTLE(
-      get_logger(),
-      *get_clock(),
-      2000,
-      "TF unavailable from '%s' to '%s': %s",
-      source_frame.c_str(),
-      target_frame_.c_str(),
-      ex.what());
+  if (!lookupTransformWithLatestFallback(source_frame, depth.header.stamp, camera.name.c_str(), transform_msg)) {
     return false;
   }
 
@@ -460,6 +535,159 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
   output.width = static_cast<std::uint32_t>(old_point_count + written);
 
   return written > 0;
+}
+
+bool PointCloudMergerNode::appendLidarAsTransformedCloud(
+  const LidarSource & lidar,
+  const PointCloudMsg & cloud,
+  PointCloudMsg & output,
+  const rclcpp::Time & now)
+{
+  const std::string source_frame = lidar.frame_id.empty() ? cloud.header.frame_id : lidar.frame_id;
+  if (source_frame.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      2000,
+      "Lidar cloud source='%s' has no frame_id and no configured frame override",
+      lidar.name.c_str());
+    return false;
+  }
+
+  if (!lidar.frame_id.empty() && lidar.frame_id != cloud.header.frame_id) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      5000,
+      "Lidar frame_id source='%s' is '%s', but using configured frame '%s'",
+      lidar.name.c_str(),
+      cloud.header.frame_id.c_str(),
+      lidar.frame_id.c_str());
+  }
+
+  geometry_msgs::msg::TransformStamped transform_msg;
+  if (!lookupTransformWithLatestFallback(source_frame, cloud.header.stamp, lidar.name.c_str(), transform_msg)) {
+    return false;
+  }
+
+  tf2::Transform transform;
+  tf2::fromMsg(transform_msg.transform, transform);
+
+  const auto input_point_count = static_cast<std::size_t>(cloud.width) * cloud.height;
+  const auto old_point_count = static_cast<std::size_t>(output.width) * output.height;
+
+  sensor_msgs::PointCloud2Modifier modifier(output);
+  modifier.resize(old_point_count + input_point_count);
+
+  sensor_msgs::PointCloud2Iterator<float> out_x(output, "x");
+  sensor_msgs::PointCloud2Iterator<float> out_y(output, "y");
+  sensor_msgs::PointCloud2Iterator<float> out_z(output, "z");
+
+  for (std::size_t i = 0; i < old_point_count; ++i) {
+    ++out_x;
+    ++out_y;
+    ++out_z;
+  }
+
+  std::size_t written = 0;
+
+  try {
+    sensor_msgs::PointCloud2ConstIterator<float> in_x(cloud, "x");
+    sensor_msgs::PointCloud2ConstIterator<float> in_y(cloud, "y");
+    sensor_msgs::PointCloud2ConstIterator<float> in_z(cloud, "z");
+
+    for (std::size_t i = 0; i < input_point_count; ++i, ++in_x, ++in_y, ++in_z) {
+      if (!std::isfinite(*in_x) || !std::isfinite(*in_y) || !std::isfinite(*in_z)) {
+        continue;
+      }
+
+      const auto transformed = transform * tf2::Vector3(*in_x, *in_y, *in_z);
+      *out_x = static_cast<float>(transformed.x());
+      *out_y = static_cast<float>(transformed.y());
+      *out_z = static_cast<float>(transformed.z());
+
+      ++out_x;
+      ++out_y;
+      ++out_z;
+      ++written;
+    }
+  } catch (const std::runtime_error & ex) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      2000,
+      "Lidar cloud source='%s' is missing float xyz fields: %s",
+      lidar.name.c_str(),
+      ex.what());
+    modifier.resize(old_point_count);
+    return false;
+  }
+
+  modifier.resize(old_point_count + written);
+
+  if (written == 0) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      2000,
+      "Lidar cloud produced no valid points source='%s' frame='%s'",
+      lidar.name.c_str(),
+      cloud.header.frame_id.c_str());
+  }
+
+  output.header.stamp = now;
+  output.header.frame_id = target_frame_;
+  output.height = 1;
+  output.width = static_cast<std::uint32_t>(old_point_count + written);
+
+  return written > 0;
+}
+
+bool PointCloudMergerNode::lookupTransformWithLatestFallback(
+  const std::string & source_frame,
+  const builtin_interfaces::msg::Time & stamp,
+  const char * source_label,
+  geometry_msgs::msg::TransformStamped & transform_msg)
+{
+  try {
+    transform_msg = tf_buffer_.lookupTransform(
+      target_frame_,
+      source_frame,
+      stamp,
+      std::chrono::milliseconds(20));
+    return true;
+  } catch (const tf2::TransformException & stamped_ex) {
+    try {
+      transform_msg = tf_buffer_.lookupTransform(
+        target_frame_,
+        source_frame,
+        tf2::TimePointZero,
+        std::chrono::milliseconds(20));
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        5000,
+        "TF at sensor stamp unavailable source='%s' frame='%s' target='%s'; using latest TF. "
+        "Original error: %s",
+        source_label,
+        source_frame.c_str(),
+        target_frame_.c_str(),
+        stamped_ex.what());
+      return true;
+    } catch (const tf2::TransformException & latest_ex) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "TF unavailable source='%s' frame='%s' target='%s': stamped_error='%s' latest_error='%s'",
+        source_label,
+        source_frame.c_str(),
+        target_frame_.c_str(),
+        stamped_ex.what(),
+        latest_ex.what());
+      return false;
+    }
+  }
 }
 
 }  // namespace autonomy

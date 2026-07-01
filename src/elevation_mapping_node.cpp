@@ -51,8 +51,8 @@ void ElevationMappingNode::loadParameters()
   std::transform(operation_mode_.begin(), operation_mode_.end(), operation_mode_.begin(), [](unsigned char c) {
     return static_cast<char>(std::tolower(c));
   });
-  if (operation_mode_ != "drive" && operation_mode_ != "adas" && operation_mode_ != "fsd") {
-    throw std::invalid_argument("operation_mode must be one of: drive, adas, fsd");
+  if (operation_mode_ != "drive") {
+    throw std::invalid_argument("operation_mode must be drive");
   }
 
   command_filter_topic_ = declare_parameter<std::string>(
@@ -110,7 +110,7 @@ void ElevationMappingNode::loadParameters()
   local_terrain_grid_spec_.max_z = declare_parameter<double>(
     "local_terrain_map.grid.max_z", local_terrain_grid_spec_.max_z);
   local_terrain_map_enabled_ =
-    local_terrain_map_config_enabled_ && (operation_mode_ == "adas" || operation_mode_ == "fsd");
+    local_terrain_map_config_enabled_ && operation_mode_ == "drive";
 
   // Declared here as the stable ROS2 parameter surface for the production
   // backend that will wrap the existing realsense_points_test algorithm.
@@ -336,11 +336,7 @@ void ElevationMappingNode::onAutonomyState(autonomy::msg::AutonomyState::SharedP
 {
   autonomy_mode_ = msg->mode;
   has_autonomy_state_ = true;
-  processing_active_cache_ = msg->mode == autonomy::msg::AutonomyState::DRIVE ||
-    msg->mode == autonomy::msg::AutonomyState::ADAS ||
-    msg->mode == autonomy::msg::AutonomyState::FSD ||
-    msg->mode == autonomy::msg::AutonomyState::MAPPING ||
-    msg->mode == autonomy::msg::AutonomyState::TRACKING;
+  processing_active_cache_ = msg->mode == autonomy::msg::AutonomyState::DRIVE;
 }
 
 bool ElevationMappingNode::processingActive() const
@@ -351,11 +347,7 @@ bool ElevationMappingNode::processingActive() const
   if (!has_autonomy_state_) {
     return false;
   }
-  return autonomy_mode_ == autonomy::msg::AutonomyState::DRIVE ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::ADAS ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::FSD ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::MAPPING ||
-    autonomy_mode_ == autonomy::msg::AutonomyState::TRACKING;
+  return autonomy_mode_ == autonomy::msg::AutonomyState::DRIVE;
 }
 
 void ElevationMappingNode::onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)

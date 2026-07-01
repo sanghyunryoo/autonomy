@@ -610,7 +610,6 @@ configure_livox_network() {
 }
 
 configure_wired_dds_network
-configure_livox_network
 
 resolved_autonomy_config="$(resolve_autonomy_config)"
 clear_realtime_permissions_when_disabled "${resolved_autonomy_config}"

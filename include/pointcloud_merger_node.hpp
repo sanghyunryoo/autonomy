@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <builtin_interfaces/msg/time.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -24,8 +25,15 @@ struct CameraSource
   bool enabled{true};
   std::string depth_topic;
   std::string camera_info_topic;
-  std::string mount_frame;
-  std::string optical_frame;
+  std::string frame;
+};
+
+struct LidarSource
+{
+  std::string name;
+  bool enabled{true};
+  std::string cloud_topic;
+  std::string frame_id;
 };
 
 class PointCloudMergerNode final : public rclcpp::Node
@@ -46,6 +54,7 @@ private:
   void onAutonomyState(autonomy::msg::AutonomyState::SharedPtr msg);
   void onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg);
   void onDepth(const std::string & camera_name, ImageMsgPtr msg);
+  void onLidarCloud(const std::string & lidar_name, PointCloudMsg::SharedPtr msg);
   void onPublishTimer();
   [[nodiscard]] bool processingActive() const;
 
@@ -56,6 +65,16 @@ private:
     const CameraInfoMsg & camera_info,
     PointCloudMsg & output,
     const rclcpp::Time & now);
+  [[nodiscard]] bool appendLidarAsTransformedCloud(
+    const LidarSource & lidar,
+    const PointCloudMsg & cloud,
+    PointCloudMsg & output,
+    const rclcpp::Time & now);
+  [[nodiscard]] bool lookupTransformWithLatestFallback(
+    const std::string & source_frame,
+    const builtin_interfaces::msg::Time & stamp,
+    const char * source_label,
+    geometry_msgs::msg::TransformStamped & transform_msg);
 
   std::string target_frame_{"base_link"};
   double publish_rate_hz_{20.0};
@@ -68,12 +87,15 @@ private:
   int8_t autonomy_mode_{autonomy::msg::AutonomyState::IDLE};
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
   std::vector<CameraSource> cameras_;
+  std::vector<LidarSource> lidars_;
 
   std::unordered_map<std::string, ImageMsgPtr> latest_depths_;
   std::unordered_map<std::string, CameraInfoMsgPtr> latest_camera_infos_;
+  std::unordered_map<std::string, PointCloudMsg::SharedPtr> latest_lidar_clouds_;
   rclcpp::Subscription<autonomy::msg::AutonomyState>::SharedPtr autonomy_sub_;
   std::vector<rclcpp::Subscription<ImageMsg>::SharedPtr> depth_subscriptions_;
   std::vector<rclcpp::Subscription<CameraInfoMsg>::SharedPtr> camera_info_subscriptions_;
+  std::vector<rclcpp::Subscription<PointCloudMsg>::SharedPtr> lidar_subscriptions_;
   rclcpp::Publisher<PointCloudMsg>::SharedPtr merged_cloud_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr publish_timer_;

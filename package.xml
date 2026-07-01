@@ -11,40 +11,19 @@
 
   <depend>geometry_msgs</depend>
   <depend>core</depend>
-  <depend>cv_bridge</depend>
   <depend>cyclonedds</depend>
-  <depend>message_filters</depend>
   <depend>nav_msgs</depend>
-  <depend>nav2_msgs</depend>
   <depend>rclcpp</depend>
-  <depend>rclcpp_action</depend>
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>std_srvs</depend>
   <depend>tf2</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>tf2_ros</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
-  <exec_depend>robot_state_publisher</exec_depend>
-  <exec_depend>realsense2_camera</exec_depend>
-  <exec_depend>nav2_bringup</exec_depend>
-  <exec_depend>nav2_controller</exec_depend>
-  <exec_depend>nav2_planner</exec_depend>
-  <exec_depend>nav2_behaviors</exec_depend>
-  <exec_depend>nav2_bt_navigator</exec_depend>
-  <exec_depend>nav2_costmap_2d</exec_depend>
-  <exec_depend>nav2_lifecycle_manager</exec_depend>
-  <exec_depend>nav2_navfn_planner</exec_depend>
-  <exec_depend>nav2_smoother</exec_depend>
-  <exec_depend>nav2_velocity_smoother</exec_depend>
-  <exec_depend>nav2_waypoint_follower</exec_depend>
-  <exec_depend>dwb_core</exec_depend>
-  <exec_depend>dwb_critics</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

@@ -1,17 +1,23 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Publish USB-port-bound RealSense RGB-D images on role-specific topics."""
 
 import json
+import math
 import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import rclpy
+from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.time import Time
+from geometry_msgs.msg import TransformStamped
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, Image, Imu
 from std_msgs.msg import String
+from tf2_ros import Buffer, StaticTransformBroadcaster, TransformBroadcaster, TransformException, TransformListener
 
 from autonomy.msg import AutonomyState
 
@@ -65,18 +71,27 @@ def parse_bool(value, default=True):
 
 class RealSenseUsbMapper(Node):
     def __init__(self):
-        super().__init__("realsense_usb_mapper")
+        super().__init__("drive_mapper_node")
         self.declare_parameter("mapping_file", "")
         self.declare_parameter("operation_mode", "drive")
+        self.declare_parameter("simulation", False)
         self.declare_parameter("publish_rate_hz", 1.0)
         self.declare_parameter("respect_autonomy_mode", False)
         self.declare_parameter("autonomy_status_topic", "/autonomy_manager/status")
+        self.declare_parameter("publish_static_tf", True)
+        self.declare_parameter("publish_stabilized_tf", True)
+        self.declare_parameter("low_pass_alpha", 0.08)
+        self.declare_parameter("min_accel_norm", 3.0)
+        self.declare_parameter("max_accel_norm", 20.0)
+        self.declare_parameter("roll_sign", -1.0)
+        self.declare_parameter("pitch_sign", -1.0)
 
         self._yaml = import_yaml_module()
         self._np = None
         self._rs = None
         self._mapping_file = self.get_parameter("mapping_file").value
         self._operation_mode = str(self.get_parameter("operation_mode").value).strip().lower()
+        self._simulation = parse_bool(self.get_parameter("simulation").value, default=False)
         self._respect_autonomy_mode = parse_bool(
             self.get_parameter("respect_autonomy_mode").value,
             default=False,
@@ -85,6 +100,7 @@ class RealSenseUsbMapper(Node):
         self._has_autonomy_state = False
         self._autonomy_mode = AutonomyState.IDLE
         self._config = self._load_config(self._mapping_file)
+        self._robot = self._config["robot"]
         self._bindings = self._select_bindings_for_operation_mode(
             self._config["camera_bindings"],
             self._config["operation_modes"],
@@ -92,10 +108,36 @@ class RealSenseUsbMapper(Node):
         )
         self._stream = self._config["stream"]
         self._temperature_config = self._config["camera_temperature"]
+        self._frame_prefix = self._robot_frame_prefix()
+        self._base_frame_id = self._robot_frame("base_link", "base_link")
+        self._stabilized_frame_id = self._robot_frame("base_stabilized_link", "base_stabilized")
+        self._front_binding = self._find_binding("front")
+        self._imu_topic = self._binding_imu_topic(self._front_binding) if self._front_binding else ""
+        self._imu_frame_id = self._merge_frame(self._binding_frame(self._front_binding, ""))
+        self._publish_static_tf = parse_bool(self.get_parameter("publish_static_tf").value, default=True)
+        self._publish_stabilized_tf = parse_bool(
+            self.get_parameter("publish_stabilized_tf").value,
+            default=True,
+        )
+        self._low_pass_alpha = min(1.0, max(0.0, float(self.get_parameter("low_pass_alpha").value)))
+        self._min_accel_norm = max(0.1, float(self.get_parameter("min_accel_norm").value))
+        self._max_accel_norm = max(self._min_accel_norm, float(self.get_parameter("max_accel_norm").value))
+        self._roll_sign = float(self.get_parameter("roll_sign").value)
+        self._pitch_sign = float(self.get_parameter("pitch_sign").value)
+        self._roll = 0.0
+        self._pitch = 0.0
+        self._has_attitude_estimate = False
+        self._received_imu = False
+        self._last_imu_frame = ""
+        self._last_transform_frame = ""
 
         self._binding_pub = self.create_publisher(String, "~/camera_bindings", 10)
         self._temperature_pub = self.create_publisher(String, "~/temperatures", 10)
-        self._heartbeat_pub = self.create_publisher(String, "/autonomy/heartbeat/realsense_usb_mapper", 10)
+        self._heartbeat_pub = self.create_publisher(String, "/autonomy/heartbeat/drive_mapper_node", 10)
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+        self._static_tf_broadcaster = StaticTransformBroadcaster(self)
+        self._tf_broadcaster = TransformBroadcaster(self)
         self._depth_publishers = {}
         self._camera_info_publishers = {}
         self._color_publishers = {}
@@ -112,6 +154,7 @@ class RealSenseUsbMapper(Node):
         self._logged_depth_publishers = set()
         self._logged_color_publishers = set()
         self._autonomy_sub = None
+        self._imu_sub = None
         if self._respect_autonomy_mode:
             self._autonomy_sub = self.create_subscription(
                 AutonomyState,
@@ -119,13 +162,24 @@ class RealSenseUsbMapper(Node):
                 self._on_autonomy_state,
                 10,
             )
-        if self._processing_active():
+        if self._publish_static_tf:
+            self._publish_urdf_static_tf()
+        if self._publish_stabilized_tf and self._imu_topic:
+            self._imu_sub = self.create_subscription(
+                Imu,
+                self._imu_topic,
+                self._on_imu,
+                qos_profile_sensor_data,
+            )
+        if self._processing_active() and not self._simulation:
             self._start_cameras()
 
         period = 1.0 / max(1.0, float(self._stream["depth_fps"]))
-        self._timer = self.create_timer(period, self._publish_depth_maps)
-        self._status_timer = self.create_timer(1.0, self._publish_status)
-        self._heartbeat_timer = self.create_timer(0.5, self._publish_heartbeat)
+        steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
+        self._timer = self.create_timer(period, self._publish_depth_maps, clock=steady_clock)
+        self._status_timer = self.create_timer(1.0, self._publish_status, clock=steady_clock)
+        self._heartbeat_timer = self.create_timer(0.5, self._publish_heartbeat, clock=steady_clock)
+        self._tf_timer = self.create_timer(0.01, self._publish_stabilized_tf_timer, clock=steady_clock)
         self._publish_status()
 
     def _on_autonomy_state(self, msg):
@@ -134,9 +188,9 @@ class RealSenseUsbMapper(Node):
         self._has_autonomy_state = True
         is_active = self._processing_active()
 
-        if is_active and not was_active:
+        if is_active and not was_active and not self._simulation:
             self._start_cameras()
-        elif was_active and not is_active:
+        elif was_active and not is_active and not self._simulation:
             self._stop_cameras()
 
     def _processing_active(self):
@@ -144,13 +198,7 @@ class RealSenseUsbMapper(Node):
             return True
         if not self._has_autonomy_state:
             return False
-        return self._autonomy_mode in (
-            AutonomyState.DRIVE,
-            AutonomyState.ADAS,
-            AutonomyState.FSD,
-            AutonomyState.MAPPING,
-            AutonomyState.TRACKING,
-        )
+        return self._autonomy_mode == AutonomyState.DRIVE
 
     def _ensure_runtime_modules(self):
         if self._np is None or self._rs is None:
@@ -167,24 +215,37 @@ class RealSenseUsbMapper(Node):
         with path.open("r", encoding="utf-8") as stream:
             data = self._yaml.safe_load(stream) or {}
 
+        robot = self._normalize_robot_config(data.get("robot", {}) or {})
+
         bindings = data.get("camera_bindings", [])
         if isinstance(bindings, dict):
-            bindings = bindings.get("real", [])
+            bindings = bindings.get("simulation" if self._simulation else "real", [])
         if not isinstance(bindings, list):
-            raise ValueError("'camera_bindings.real' must be a list")
+            raise ValueError("'camera_bindings' must be a list")
 
         for binding in bindings:
             binding.setdefault("enabled", True)
             if not parse_bool(binding.get("enabled", True), default=True):
                 continue
 
-            for key in ("role", "camera_name", "depth_topic", "camera_info_topic"):
+            for key in ("role", "camera_name"):
                 if key not in binding:
                     raise ValueError(f"Missing required key '{key}' in binding: {binding}")
-            if "usb_port_id" not in binding and "serial_no" not in binding:
+            if not self._simulation and "usb_port_id" not in binding and "serial_no" not in binding:
                 raise ValueError(
                     "Missing required key 'usb_port_id' in binding "
                     f"(legacy 'serial_no' is still accepted): {binding}"
+                )
+
+            camera_name = str(binding.get("camera_name", "")).strip("/")
+            if camera_name:
+                base_topic = f"{str(robot.get('topic_prefix', '/f4')).rstrip('/')}/{camera_name}"
+                binding.setdefault("depth_topic", f"{base_topic}/depth/image_rect_raw")
+                binding.setdefault("camera_info_topic", f"{base_topic}/depth/camera_info")
+                binding.setdefault("imu_topic", f"{base_topic}/imu")
+                binding.setdefault(
+                    "frame",
+                    binding.get("mount_frame") or binding.get("optical_frame") or camera_name,
                 )
 
         stream = data.get("stream", {})
@@ -238,7 +299,24 @@ class RealSenseUsbMapper(Node):
             "operation_modes": operation_modes,
             "stream": stream,
             "camera_temperature": temperature,
+            "robot": robot,
         }
+
+    def _normalize_robot_config(self, robot):
+        model = str(robot.get("model", "f4")).strip("/") or "f4"
+        robot = dict(robot)
+        robot["model"] = model
+        robot.setdefault("namespace", model)
+        robot.setdefault("frame_prefix", f"{model}/")
+        robot.setdefault("topic_prefix", f"/{model}")
+        robot.setdefault("urdf_path", f"src/autonomy/resources/urdf/{model}.urdf")
+        robot.setdefault("base_link", "base_link")
+        robot.setdefault("base_footprint_link", "base_footprint")
+        robot.setdefault("base_stabilized_link", "base_stabilized")
+        robot.setdefault("lidar_link", "lidar_link")
+        robot.setdefault("map_frame", "map")
+        robot.setdefault("odom_frame", "odom")
+        return robot
 
     def _default_operation_modes(self):
         return {
@@ -247,6 +325,229 @@ class RealSenseUsbMapper(Node):
             "fsd": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
             "tracking": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
         }
+
+    def _robot_frame_prefix(self):
+        prefix = str(self._robot.get("frame_prefix", "")).strip("/")
+        if not prefix:
+            prefix = str(self._robot.get("namespace", self._robot.get("name", ""))).strip("/")
+        return f"{prefix}/" if prefix else ""
+
+    def _robot_frame(self, key, default):
+        link = str(self._robot.get(key, default)).strip().lstrip("/")
+        if "/" in link:
+            return link
+        return self._frame_prefix + link
+
+    def _merge_frame(self, frame):
+        text = str(frame or "").strip().lstrip("/")
+        if not text or "/" in text:
+            return text
+        return self._frame_prefix + text
+
+    def _find_binding(self, role):
+        for binding in self._bindings:
+            if str(binding.get("role", "")).strip().lower() == role:
+                return binding
+        return None
+
+    def _binding_frame(self, binding, default=None):
+        if binding is None:
+            return "" if default is None else default
+        fallback = binding.get("camera_name", "") if default is None else default
+        return (
+            binding.get("frame")
+            or binding.get("imu_frame")
+            or binding.get("optical_frame")
+            or binding.get("mount_frame")
+            or fallback
+        )
+
+    def _topic_prefix(self):
+        return str(self._robot.get("topic_prefix", "/f4")).rstrip("/")
+
+    def _camera_base_topic(self, binding):
+        camera_name = str(binding.get("camera_name", "front_camera")).strip("/")
+        return f"{self._topic_prefix()}/{camera_name}"
+
+    def _binding_imu_topic(self, binding):
+        if binding is None:
+            return ""
+        return str(binding.get("imu_topic", f"{self._camera_base_topic(binding)}/imu"))
+
+    def _resolve_mapping_path(self, value):
+        if not value:
+            return ""
+        path = Path(str(value)).expanduser()
+        if path.is_absolute():
+            return str(path)
+        source_root = Path(__file__).resolve().parents[1]
+        if str(value).startswith("src/autonomy/"):
+            return str(source_root / str(value)[len("src/autonomy/"):])
+        return str(source_root / str(value))
+
+    def _quaternion_from_rpy(self, roll, pitch, yaw):
+        cr = math.cos(roll * 0.5)
+        sr = math.sin(roll * 0.5)
+        cp = math.cos(pitch * 0.5)
+        sp = math.sin(pitch * 0.5)
+        cy = math.cos(yaw * 0.5)
+        sy = math.sin(yaw * 0.5)
+        return (
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+            cr * cp * cy + sr * sp * sy,
+        )
+
+    def _publish_urdf_static_tf(self):
+        urdf_path = self._resolve_mapping_path(self._robot.get("urdf_path", ""))
+        if not urdf_path:
+            self.get_logger().warn("No robot.urdf_path configured; mapper cannot publish URDF static TF")
+            return
+        path = Path(urdf_path)
+        if not path.exists():
+            self.get_logger().warn(f"URDF does not exist; mapper cannot publish static TF: {path}")
+            return
+
+        transforms = []
+        root = ET.parse(path).getroot()
+        for joint in root.findall("joint"):
+            if joint.get("type") != "fixed":
+                continue
+            parent = joint.find("parent")
+            child = joint.find("child")
+            if parent is None or child is None:
+                continue
+            parent_frame = self._merge_frame(parent.get("link", ""))
+            child_frame = self._merge_frame(child.get("link", ""))
+            if not parent_frame or not child_frame or parent_frame == child_frame:
+                continue
+            origin = joint.find("origin")
+            xyz = [0.0, 0.0, 0.0]
+            rpy = [0.0, 0.0, 0.0]
+            if origin is not None:
+                xyz = [float(item) for item in origin.get("xyz", "0 0 0").split()]
+                rpy = [float(item) for item in origin.get("rpy", "0 0 0").split()]
+            transforms.append(self._transform_msg(parent_frame, child_frame, xyz, rpy))
+
+        seen_aliases = set()
+        for binding in self._bindings:
+            for frame in (
+                self._binding_frame(binding, ""),
+                binding.get("rgb_frame", ""),
+                binding.get("rgb_optical_frame", ""),
+                binding.get("color_optical_frame", ""),
+            ):
+                child = str(frame).strip().lstrip("/")
+                if not child or "/" in child:
+                    continue
+                parent = self._merge_frame(child)
+                if parent == child or (parent, child) in seen_aliases:
+                    continue
+                seen_aliases.add((parent, child))
+                transforms.append(self._transform_msg(parent, child, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]))
+
+        if transforms:
+            self._static_tf_broadcaster.sendTransform(transforms)
+            self.get_logger().info(f"Published {len(transforms)} mapper static TF transforms from URDF")
+
+    def _transform_msg(self, parent, child, xyz, rpy):
+        msg = TransformStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = parent
+        msg.child_frame_id = child
+        msg.transform.translation.x = float(xyz[0])
+        msg.transform.translation.y = float(xyz[1])
+        msg.transform.translation.z = float(xyz[2])
+        qx, qy, qz, qw = self._quaternion_from_rpy(float(rpy[0]), float(rpy[1]), float(rpy[2]))
+        msg.transform.rotation.x = qx
+        msg.transform.rotation.y = qy
+        msg.transform.rotation.z = qz
+        msg.transform.rotation.w = qw
+        return msg
+
+    def _on_imu(self, msg):
+        accel = self._acceleration_in_base_frame(msg)
+        if accel is None:
+            return
+        norm = math.sqrt(accel[0] * accel[0] + accel[1] * accel[1] + accel[2] * accel[2])
+        if norm < self._min_accel_norm or norm > self._max_accel_norm:
+            return
+        roll = math.atan2(accel[1], accel[2])
+        pitch = math.atan2(-accel[0], math.hypot(accel[1], accel[2]))
+        if not self._has_attitude_estimate:
+            self._roll = roll
+            self._pitch = pitch
+            self._has_attitude_estimate = True
+        else:
+            self._roll = (1.0 - self._low_pass_alpha) * self._roll + self._low_pass_alpha * roll
+            self._pitch = (1.0 - self._low_pass_alpha) * self._pitch + self._low_pass_alpha * pitch
+        self._received_imu = True
+        self._last_imu_frame = msg.header.frame_id
+
+    def _acceleration_in_base_frame(self, msg):
+        source_frame = self._imu_frame_id or msg.header.frame_id
+        self._last_transform_frame = source_frame
+        if not source_frame:
+            return (
+                msg.linear_acceleration.x,
+                msg.linear_acceleration.y,
+                msg.linear_acceleration.z,
+            )
+        if source_frame == self._base_frame_id:
+            return (
+                msg.linear_acceleration.x,
+                msg.linear_acceleration.y,
+                msg.linear_acceleration.z,
+            )
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._base_frame_id,
+                source_frame,
+                Time(),
+            )
+        except TransformException as exc:
+            self.get_logger().warn(
+                f"Waiting for IMU TF {source_frame} -> {self._base_frame_id}: {exc}",
+                throttle_duration_sec=2.0,
+            )
+            return None
+        return self._rotate_vector(
+            (
+                msg.linear_acceleration.x,
+                msg.linear_acceleration.y,
+                msg.linear_acceleration.z,
+            ),
+            (
+                transform.transform.rotation.x,
+                transform.transform.rotation.y,
+                transform.transform.rotation.z,
+                transform.transform.rotation.w,
+            ),
+        )
+
+    def _rotate_vector(self, vector, quaternion):
+        x, y, z = vector
+        qx, qy, qz, qw = quaternion
+        tx = 2.0 * (qy * z - qz * y)
+        ty = 2.0 * (qz * x - qx * z)
+        tz = 2.0 * (qx * y - qy * x)
+        return (
+            x + qw * tx + (qy * tz - qz * ty),
+            y + qw * ty + (qz * tx - qx * tz),
+            z + qw * tz + (qx * ty - qy * tx),
+        )
+
+    def _publish_stabilized_tf_timer(self):
+        if not self._publish_stabilized_tf or not self._has_attitude_estimate:
+            return
+        msg = self._transform_msg(
+            self._base_frame_id,
+            self._stabilized_frame_id,
+            [0.0, 0.0, 0.0],
+            [self._roll_sign * self._roll, self._pitch_sign * self._pitch, 0.0],
+        )
+        self._tf_broadcaster.sendTransform(msg)
 
     def _select_bindings_for_operation_mode(self, bindings, operation_modes, operation_mode):
         if operation_mode not in operation_modes:
@@ -552,11 +853,7 @@ class RealSenseUsbMapper(Node):
             color_frame = frames.get_color_frame() if role in self._color_publishers else None
 
             stamp = self.get_clock().now().to_msg()
-            frame_id = (
-                binding.get("optical_frame")
-                or binding.get("mount_frame")
-                or binding["camera_name"]
-            )
+            frame_id = self._binding_frame(binding)
             depth = self._np.asanyarray(depth_frame.get_data()).astype(self._np.float32)
             depth *= float(self._depth_scales[role])
 
@@ -577,7 +874,9 @@ class RealSenseUsbMapper(Node):
 
             if color_frame:
                 color_frame_id = (
-                    binding.get("rgb_optical_frame")
+                    binding.get("rgb_frame")
+                    or binding.get("color_frame")
+                    or binding.get("rgb_optical_frame")
                     or binding.get("color_optical_frame")
                     or frame_id
                 )
@@ -760,6 +1059,30 @@ class RealSenseUsbMapper(Node):
             self._publish_temperature_payload({})
             return
 
+        if self._simulation:
+            resolved = []
+            for binding in self._bindings:
+                base = self._camera_base_topic(binding)
+                item = dict(binding)
+                item["depth_topic"] = str(binding.get("depth_topic", f"{base}/depth/image_rect_raw"))
+                item["camera_info_topic"] = str(binding.get("camera_info_topic", f"{base}/depth/camera_info"))
+                item["imu_topic"] = str(binding.get("imu_topic", f"{base}/imu"))
+                item["connected"] = True
+                resolved.append(item)
+            msg = String()
+            msg.data = json.dumps({
+                "status": "ready",
+                "runtime": "simulation",
+                "base_frame_id": self._base_frame_id,
+                "stabilized_frame_id": self._stabilized_frame_id,
+                "imu_topic": self._imu_topic,
+                "imu_frame_id": self._imu_frame_id,
+                "bindings": resolved,
+            }, sort_keys=True)
+            self._binding_pub.publish(msg)
+            self._publish_temperature_payload({})
+            return
+
         connected = self._connected_devices()
         temperature_readings = self._temperature_payload()
         connected_serials = set(connected.keys())
@@ -806,8 +1129,14 @@ class RealSenseUsbMapper(Node):
         msg = String()
         if not self._processing_active():
             msg.data = "standby"
+        elif self._publish_stabilized_tf and not self._has_attitude_estimate:
+            msg.data = "waiting_for_imu"
+        elif self._simulation:
+            msg.data = "ready:simulation_tf"
         else:
             msg.data = "ready" if self._pipelines else "degraded:no_active_cameras"
+        if self._has_attitude_estimate:
+            msg.data += f":imu_frame={self._last_imu_frame}:transform_frame={self._last_transform_frame}"
         self._heartbeat_pub.publish(msg)
 
 
