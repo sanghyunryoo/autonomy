@@ -124,7 +124,8 @@ bool isNodeFailureStatus(const std::string & status)
   return startsWith(status, "error:") ||
          startsWith(status, "fatal:") ||
          startsWith(status, "exception:") ||
-         startsWith(status, "degraded:");
+         startsWith(status, "degraded:") ||
+         startsWith(status, "waiting_for_");
 }
 
 struct NodeStatus
