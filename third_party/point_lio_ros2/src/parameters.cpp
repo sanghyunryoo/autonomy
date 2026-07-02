@@ -6,6 +6,7 @@ std::vector<double> odom_child_to_body_T;
 std::vector<double> odom_child_to_body_R;
 std::string odom_footprint_frame_id;
 bool odom_publish_footprint_tf = false;
+double odom_footprint_base_height = 0.0;
 
 bool is_first_frame = true;
 double lidar_end_time = 0.0, first_lidar_time = 0.0, time_con = 0.0;
@@ -46,6 +47,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh) {
     nh->declare_parameter<std::vector<double>>("odom.child_to_body_R", {1, 0, 0, 0, 1, 0, 0, 0, 1});
     nh->declare_parameter<std::string>("odom.footprint_frame_id", "");
     nh->declare_parameter<bool>("odom.publish_footprint_tf", false);
+    nh->declare_parameter<double>("odom.footprint_base_height", 0.0);
 
     nh->declare_parameter<bool>("prop_at_freq_of_imu", true);
     nh->declare_parameter<bool>("use_imu_as_input", true);
@@ -110,6 +112,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh) {
     nh->get_parameter("odom.child_to_body_R", odom_child_to_body_R);
     nh->get_parameter("odom.footprint_frame_id", odom_footprint_frame_id);
     nh->get_parameter("odom.publish_footprint_tf", odom_publish_footprint_tf);
+    nh->get_parameter("odom.footprint_base_height", odom_footprint_base_height);
 
     nh->get_parameter("prop_at_freq_of_imu", prop_at_freq_of_imu);
     nh->get_parameter("use_imu_as_input", use_imu_as_input);

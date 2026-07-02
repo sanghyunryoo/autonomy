@@ -1,5 +1,6 @@
 robot:
   model: f16
+  base_height: 0.47957
 
 operation_modes:
   drive:
@@ -157,7 +158,7 @@ global_costmap_node:
     x_max: 20.0
     y_min: -20.0
     y_max: 20.0
-    min_obstacle_z: 0.05
+    min_obstacle_z: 0.5
     max_obstacle_z: 1.50
     hit_increment: 8
     decay_per_publish: 0
@@ -167,7 +168,7 @@ local_costmap_node:
   ros__parameters:
     height_scan_topic: /elevation_mapping_node/local_terrain_map
     costmap_topic: ~/local_costmap
-    lethal_height: 0.18
+    lethal_height: 0.3
     inscribed_height: 0.08
 
 global_planner_node:
@@ -272,7 +273,6 @@ elevation_mapping_node:
       point_stride: 1
       max_range: 2.5
       print_frame_info: false 
-      base_height: 0.47957
       clipping_min: 0.0
       clipping_max: 0.47957
       fill_debug_outputs: true

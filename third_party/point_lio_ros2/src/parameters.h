@@ -16,6 +16,7 @@ extern std::vector<double> odom_child_to_body_T;
 extern std::vector<double> odom_child_to_body_R;
 extern std::string odom_footprint_frame_id;
 extern bool odom_publish_footprint_tf;
+extern double odom_footprint_base_height;
 
 extern bool is_first_frame;
 extern double lidar_end_time, first_lidar_time, time_con;

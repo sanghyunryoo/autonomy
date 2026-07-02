@@ -152,6 +152,14 @@ def _robot_model(data):
     return str(_robot_params(data).get("model", "f4")).strip("/") or "f4"
 
 
+def _robot_base_height(data):
+    value = _robot_params(data).get("base_height", 0.0)
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _robot_namespace(data):
     params = _robot_params(data)
     return str(params.get("namespace", params.get("name", _robot_model(data)))).strip("/")
@@ -552,6 +560,7 @@ def _point_lio_params(data):
         "odom_child_frame_id": _robot_frame(data, "base_link", "base_link"),
         "odom.footprint_frame_id": _robot_frame(data, "base_footprint_link", "base_footprint"),
         "odom.publish_footprint_tf": True,
+        "odom.footprint_base_height": _robot_base_height(data),
         "publish.scan_bodyframe_pub_en": False,
         "runtime_pos_log_enable": False,
     }
@@ -573,10 +582,17 @@ def _point_lio_monitor_params(data):
     return params
 
 
+def _elevation_mapping_params(data):
+    params = _node_params(data, "elevation_mapping_node")
+    params["algorithm.base_height"] = _robot_base_height(data)
+    return params
+
+
 def _global_costmap_params(data):
     params = _node_params(data, "global_costmap_node")
     params.setdefault("cloud_topic", "/cloud_registered")
     params.setdefault("frame_id", _robot_frame(data, "map_frame", "map"))
+    params.setdefault("footprint_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint"))
     return params
 
 
@@ -584,6 +600,7 @@ def _local_costmap_params(data):
     params = _node_params(data, "local_costmap_node")
     params.setdefault("height_scan_topic", "/elevation_mapping_node/local_terrain_map")
     params.setdefault("frame_id", _robot_frame(data, "map_frame", "map"))
+    params.setdefault("footprint_frame_id", _robot_frame(data, "base_footprint_link", "base_footprint"))
     return params
 
 
@@ -689,7 +706,7 @@ def _make_stack(context, *args, **kwargs):
         ),
         _worker_node(
             "elevation_mapping_node",
-            [_node_params(data, "elevation_mapping_node"), use_sim_time, {"operation_mode": "drive"}],
+            [_elevation_mapping_params(data), use_sim_time, {"operation_mode": "drive"}],
             output="screen",
         ),
         _worker_node(

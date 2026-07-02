@@ -37,6 +37,7 @@ public:
       "height_scan_topic", "/elevation_mapping_node/local_terrain_map");
     costmap_topic_ = declare_parameter<std::string>("costmap_topic", "~/local_costmap");
     frame_id_ = declare_parameter<std::string>("frame_id", "map");
+    footprint_frame_id_ = declare_parameter<std::string>("footprint_frame_id", "");
     lethal_height_ = std::max(1.0e-3, declare_parameter<double>("lethal_height", 0.18));
     inscribed_height_ = std::clamp(
       declare_parameter<double>("inscribed_height", 0.08), 0.0, lethal_height_);
@@ -121,8 +122,29 @@ private:
     msg.header.frame_id = frame_id_;
     msg.info.origin.position.x = map_origin.x();
     msg.info.origin.position.y = map_origin.y();
-    msg.info.origin.position.z = map_origin.z();
+    msg.info.origin.position.z = footprintZ(map_origin.z());
     msg.info.origin.orientation = yawOnly(transform.getRotation());
+  }
+
+  double footprintZ(const double fallback_z)
+  {
+    if (frame_id_.empty() || footprint_frame_id_.empty()) {
+      return fallback_z;
+    }
+    try {
+      const auto transform = tf_buffer_.lookupTransform(frame_id_, footprint_frame_id_, tf2::TimePointZero);
+      return transform.transform.translation.z;
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Using costmap z fallback; TF %s -> %s unavailable: %s",
+        footprint_frame_id_.c_str(),
+        frame_id_.c_str(),
+        ex.what());
+      return fallback_z;
+    }
   }
 
   geometry_msgs::msg::Quaternion yawOnly(const tf2::Quaternion & quaternion) const
@@ -175,6 +197,7 @@ private:
   std::string scan_topic_;
   std::string costmap_topic_;
   std::string frame_id_;
+  std::string footprint_frame_id_;
   std::string last_frame_id_;
   double lethal_height_{0.18};
   double inscribed_height_{0.08};

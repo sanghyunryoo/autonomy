@@ -12,6 +12,9 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <tf2/exceptions.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 namespace autonomy
 {
@@ -22,11 +25,14 @@ class GlobalCostmapNode final : public rclcpp::Node
 {
 public:
   GlobalCostmapNode()
-  : Node("global_costmap_node")
+  : Node("global_costmap_node"),
+    tf_buffer_(get_clock()),
+    tf_listener_(tf_buffer_)
   {
     cloud_topic_ = declare_parameter<std::string>("cloud_topic", "/cloud_registered");
     costmap_topic_ = declare_parameter<std::string>("costmap_topic", "~/global_costmap");
     frame_id_ = declare_parameter<std::string>("frame_id", "map");
+    footprint_frame_id_ = declare_parameter<std::string>("footprint_frame_id", "");
     resolution_ = std::max(0.02, declare_parameter<double>("resolution", 0.10));
     x_min_ = declare_parameter<double>("x_min", -20.0);
     x_max_ = declare_parameter<double>("x_max", 20.0);
@@ -146,6 +152,7 @@ private:
       msg.info.height = height_;
       msg.info.origin.position.x = x_min_;
       msg.info.origin.position.y = y_min_;
+      msg.info.origin.position.z = footprintZ(0.0);
       msg.info.origin.orientation.w = 1.0;
       msg.data = costs_;
     }
@@ -157,9 +164,31 @@ private:
     heartbeat_pub_->publish(heartbeat);
   }
 
+  double footprintZ(const double fallback_z)
+  {
+    if (frame_id_.empty() || footprint_frame_id_.empty()) {
+      return fallback_z;
+    }
+    try {
+      const auto transform = tf_buffer_.lookupTransform(frame_id_, footprint_frame_id_, tf2::TimePointZero);
+      return transform.transform.translation.z;
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Using costmap z fallback; TF %s -> %s unavailable: %s",
+        footprint_frame_id_.c_str(),
+        frame_id_.c_str(),
+        ex.what());
+      return fallback_z;
+    }
+  }
+
   std::string cloud_topic_;
   std::string costmap_topic_;
   std::string frame_id_;
+  std::string footprint_frame_id_;
   double resolution_{0.10};
   double x_min_{-20.0};
   double x_max_{20.0};
@@ -180,6 +209,8 @@ private:
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
 };
 
 }  // namespace

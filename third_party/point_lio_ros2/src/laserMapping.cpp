@@ -706,19 +706,12 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
             odomAftMapped.pose.pose.orientation.x,
             odomAftMapped.pose.pose.orientation.y,
             odomAftMapped.pose.pose.orientation.z);
-        const Eigen::Vector3d map_p_base(
-            odomAftMapped.pose.pose.position.x,
-            odomAftMapped.pose.pose.position.y,
-            odomAftMapped.pose.pose.position.z);
-
         const Eigen::Matrix3d map_R_base = map_q_base.normalized().toRotationMatrix();
         const double yaw = std::atan2(map_R_base(1, 0), map_R_base(0, 0));
         const Eigen::AngleAxisd map_R_footprint_yaw(yaw, Eigen::Vector3d::UnitZ());
-        const Eigen::Vector3d map_p_footprint(map_p_base.x(), map_p_base.y(), 0.0);
         const Eigen::Matrix3d base_R_footprint =
             map_R_base.transpose() * map_R_footprint_yaw.toRotationMatrix();
-        const Eigen::Vector3d base_p_footprint =
-            map_R_base.transpose() * (map_p_footprint - map_p_base);
+        const Eigen::Vector3d base_p_footprint(0.0, 0.0, -std::max(0.0, odom_footprint_base_height));
         const Eigen::Quaterniond base_q_footprint(base_R_footprint);
 
         geometry_msgs::msg::TransformStamped footprint_transform;

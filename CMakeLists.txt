@@ -107,7 +107,7 @@ ament_target_dependencies(global_planner_node geometry_msgs nav_msgs rclcpp std_
 add_executable(global_costmap_node
   src/global_costmap_node.cpp
 )
-ament_target_dependencies(global_costmap_node nav_msgs rclcpp sensor_msgs std_msgs)
+ament_target_dependencies(global_costmap_node nav_msgs rclcpp sensor_msgs std_msgs tf2 tf2_ros)
 
 add_executable(local_costmap_node
   src/local_costmap_node.cpp
