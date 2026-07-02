@@ -12,6 +12,8 @@
 extern bool odom_only;
 extern std::string odom_header_frame_id;
 extern std::string odom_child_frame_id;
+extern std::vector<double> odom_child_to_body_T;
+extern std::vector<double> odom_child_to_body_R;
 
 extern bool is_first_frame;
 extern double lidar_end_time, first_lidar_time, time_con;

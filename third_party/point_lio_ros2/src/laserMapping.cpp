@@ -78,6 +78,9 @@ geometry_msgs::msg::PoseStamped msg_body_pose;
 
 auto logger = rclcpp::get_logger("laserMapping");
 
+V3D OdomChild_T_wrt_Body(Zero3d);
+M3D OdomChild_R_wrt_Body(Eye3d);
+
 void SigHandle(int sig) {
     flg_exit = true;
     RCLCPP_WARN(logger, "catch sig %d", sig);
@@ -597,23 +600,28 @@ void publish_frame_body(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::
 
 template<typename T>
 void set_posestamp(T &out) {
+    Eigen::Quaterniond body_q;
+    V3D body_p;
     if (!use_imu_as_input) {
-        out.position.x = kf_output.x_.pos(0);
-        out.position.y = kf_output.x_.pos(1);
-        out.position.z = kf_output.x_.pos(2);
-        out.orientation.x = kf_output.x_.rot.coeffs()[0];
-        out.orientation.y = kf_output.x_.rot.coeffs()[1];
-        out.orientation.z = kf_output.x_.rot.coeffs()[2];
-        out.orientation.w = kf_output.x_.rot.coeffs()[3];
+        body_p = kf_output.x_.pos;
+        body_q = kf_output.x_.rot.normalized();
     } else {
-        out.position.x = kf_input.x_.pos(0);
-        out.position.y = kf_input.x_.pos(1);
-        out.position.z = kf_input.x_.pos(2);
-        out.orientation.x = kf_input.x_.rot.coeffs()[0];
-        out.orientation.y = kf_input.x_.rot.coeffs()[1];
-        out.orientation.z = kf_input.x_.rot.coeffs()[2];
-        out.orientation.w = kf_input.x_.rot.coeffs()[3];
+        body_p = kf_input.x_.pos;
+        body_q = kf_input.x_.rot.normalized();
     }
+
+    const M3D child_R_body = OdomChild_R_wrt_Body.transpose();
+    const M3D map_R_child = body_q.toRotationMatrix() * child_R_body;
+    const V3D map_p_child = body_p - map_R_child * OdomChild_T_wrt_Body;
+    const Eigen::Quaterniond child_q(map_R_child);
+
+    out.position.x = map_p_child(0);
+    out.position.y = map_p_child(1);
+    out.position.z = map_p_child(2);
+    out.orientation.x = child_q.x();
+    out.orientation.y = child_q.y();
+    out.orientation.z = child_q.z();
+    out.orientation.w = child_q.w();
 }
 
 template<typename T>
@@ -732,6 +740,8 @@ int main(int argc, char **argv) {
     downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);
     Lidar_T_wrt_IMU << VEC_FROM_ARRAY(extrinT);
     Lidar_R_wrt_IMU << MAT_FROM_ARRAY(extrinR);
+    OdomChild_T_wrt_Body << VEC_FROM_ARRAY(odom_child_to_body_T);
+    OdomChild_R_wrt_Body << MAT_FROM_ARRAY(odom_child_to_body_R);
     if (extrinsic_est_en) {
         if (!use_imu_as_input) {
             kf_output.x_.offset_R_L_I = Lidar_R_wrt_IMU;

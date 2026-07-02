@@ -1,5 +1,7 @@
 import os
+import math
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import yaml
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
@@ -58,6 +60,78 @@ def _resolve_package_path(value):
             source_path / text if source_path is not None else None,
         ))
     return text
+
+
+def _mat_mul(a, b):
+    return [
+        [sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)]
+        for i in range(3)
+    ]
+
+
+def _mat_vec_mul(a, v):
+    return [sum(a[i][k] * v[k] for k in range(3)) for i in range(3)]
+
+
+def _rpy_to_matrix(roll, pitch, yaw):
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    return [
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp, cp * sr, cp * cr],
+    ]
+
+
+def _flatten_matrix(matrix):
+    return [matrix[i][j] for i in range(3) for j in range(3)]
+
+
+def _robot_urdf_path(data):
+    params = _robot_params(data)
+    default = f"resources/urdf/{_robot_model(data)}.urdf"
+    return _resolve_package_path(params.get("urdf_path", default))
+
+
+def _fixed_transform_from_urdf(data, parent_link, child_link):
+    urdf_path = _robot_urdf_path(data)
+    if not urdf_path or not Path(urdf_path).exists():
+        return None
+
+    root = ET.parse(urdf_path).getroot()
+    children = {}
+    for joint in root.findall("joint"):
+        if joint.get("type") != "fixed":
+            continue
+        parent = joint.find("parent")
+        child = joint.find("child")
+        if parent is None or child is None:
+            continue
+        origin = joint.find("origin")
+        xyz = [0.0, 0.0, 0.0]
+        rpy = [0.0, 0.0, 0.0]
+        if origin is not None:
+            xyz = [float(v) for v in origin.get("xyz", "0 0 0").split()]
+            rpy = [float(v) for v in origin.get("rpy", "0 0 0").split()]
+        children.setdefault(parent.get("link"), []).append((child.get("link"), xyz, _rpy_to_matrix(*rpy)))
+
+    stack = [(parent_link, [0.0, 0.0, 0.0], [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])]
+    visited = set()
+    while stack:
+        link, pos, rot = stack.pop()
+        if link == child_link:
+            return pos, rot
+        if link in visited:
+            continue
+        visited.add(link)
+        for next_link, xyz, next_rot in children.get(link, []):
+            stack.append((
+                next_link,
+                [pos[i] + _mat_vec_mul(rot, xyz)[i] for i in range(3)],
+                _mat_mul(rot, next_rot),
+            ))
+    return None
 
 
 def _load_yaml(path):
@@ -442,6 +516,11 @@ def _livox_driver_action(data, simulation):
 def _point_lio_params(data):
     params = _node_params(data, "point_lio")
     adapter = _point_lio_adapter_params(data)
+    child_to_body = _fixed_transform_from_urdf(
+        data,
+        _robot_link(data, "base_link", "base_link"),
+        _robot_link(data, "lidar_link", "lidar_link"),
+    )
     flat = {
         "common.lid_topic": adapter.get("output_topic", "/point_lio/lidar"),
         "common.imu_topic": f"{_robot_topic_prefix(data)}/livox/imu",
@@ -475,6 +554,10 @@ def _point_lio_params(data):
         "publish.scan_bodyframe_pub_en": False,
         "runtime_pos_log_enable": False,
     }
+    if child_to_body is not None:
+        child_to_body_t, child_to_body_r = child_to_body
+        flat["odom.child_to_body_T"] = child_to_body_t
+        flat["odom.child_to_body_R"] = _flatten_matrix(child_to_body_r)
     for key, value in params.items():
         if key != "config_path":
             flat[key] = value

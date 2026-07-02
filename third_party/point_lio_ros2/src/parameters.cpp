@@ -2,6 +2,8 @@
 
 bool odom_only;
 std::string odom_header_frame_id, odom_child_frame_id;
+std::vector<double> odom_child_to_body_T;
+std::vector<double> odom_child_to_body_R;
 
 bool is_first_frame = true;
 double lidar_end_time = 0.0, first_lidar_time = 0.0, time_con = 0.0;
@@ -38,6 +40,8 @@ void readParameters(shared_ptr<rclcpp::Node> &nh) {
     nh->declare_parameter<bool>("odom_only", false);
     nh->declare_parameter<std::string>("odom_header_frame_id", "camera_init");
     nh->declare_parameter<std::string>("odom_child_frame_id", "aft_mapped");
+    nh->declare_parameter<std::vector<double>>("odom.child_to_body_T", {0, 0, 0});
+    nh->declare_parameter<std::vector<double>>("odom.child_to_body_R", {1, 0, 0, 0, 1, 0, 0, 0, 1});
 
     nh->declare_parameter<bool>("prop_at_freq_of_imu", true);
     nh->declare_parameter<bool>("use_imu_as_input", true);
@@ -98,6 +102,8 @@ void readParameters(shared_ptr<rclcpp::Node> &nh) {
     nh->get_parameter("odom_only", odom_only);
     nh->get_parameter("odom_header_frame_id", odom_header_frame_id);
     nh->get_parameter("odom_child_frame_id", odom_child_frame_id);
+    nh->get_parameter("odom.child_to_body_T", odom_child_to_body_T);
+    nh->get_parameter("odom.child_to_body_R", odom_child_to_body_R);
 
     nh->get_parameter("prop_at_freq_of_imu", prop_at_freq_of_imu);
     nh->get_parameter("use_imu_as_input", use_imu_as_input);
@@ -154,4 +160,3 @@ void readParameters(shared_ptr<rclcpp::Node> &nh) {
     nh->get_parameter("pcd_save.pcd_save_en", pcd_save_en);
     nh->get_parameter("pcd_save.interval", pcd_save_interval);
 }
-
