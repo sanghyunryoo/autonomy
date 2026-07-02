@@ -648,6 +648,184 @@ run_autonomy_launch() {
   fi
 }
 
+read_expected_sensor_topics() {
+  local config_file="$1"
+  /usr/bin/python3 - "${config_file}" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], "r", encoding="utf-8") as stream:
+    data = yaml.safe_load(stream) or {}
+
+
+def parse_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("true", "1", "yes", "y", "on"):
+        return True
+    if text in ("false", "0", "no", "n", "off"):
+        return False
+    return bool(value)
+
+
+def robot_model():
+    robot = data.get("robot") or {}
+    return str(robot.get("model", "f4")).strip() or "f4"
+
+
+def robot_namespace():
+    robot = data.get("robot") or {}
+    return str(robot.get("namespace", robot_model())).strip("/") or robot_model()
+
+
+def topic_prefix():
+    robot = data.get("robot") or {}
+    return str(robot.get("topic_prefix", f"/{robot_namespace()}")).rstrip("/")
+
+
+def camera_bindings():
+    bindings = data.get("camera_bindings", [])
+    if isinstance(bindings, dict):
+        bindings = bindings.get("real", [])
+    return bindings if isinstance(bindings, list) else []
+
+
+def emit(label, topic, msg_type):
+    topic = str(topic or "").strip()
+    if topic:
+        print(f"{label}|{topic}|{msg_type}")
+
+
+for binding in camera_bindings():
+    if not isinstance(binding, dict) or not parse_bool(binding.get("enabled", True), True):
+        continue
+    role = str(binding.get("role", "camera")).strip() or "camera"
+    name = str(binding.get("camera_name", f"{role}_camera")).strip("/")
+    base = f"{topic_prefix()}/{name}"
+    emit(f"camera:{role}:depth", binding.get("depth_topic", f"{base}/depth/image_rect_raw"), "sensor_msgs/msg/Image")
+    emit(
+        f"camera:{role}:camera_info",
+        binding.get("camera_info_topic", f"{base}/depth/camera_info"),
+        "sensor_msgs/msg/CameraInfo",
+    )
+    model = str(binding.get("model", "")).strip().lower()
+    has_imu = model.endswith("i") or parse_bool(binding.get("enable_imu", False), False)
+    if has_imu:
+        emit(f"camera:{role}:imu", binding.get("imu_topic", f"{base}/imu"), "sensor_msgs/msg/Imu")
+
+params = ((data.get("pointcloud_merge_node") or {}).get("ros__parameters") or {})
+lidar_names = params.get("lidar_names", [])
+lidars = params.get("lidars", {})
+if isinstance(lidar_names, list):
+    if not isinstance(lidars, dict):
+        lidars = {}
+    for raw_name in lidar_names:
+        name = str(raw_name).strip()
+        if not name:
+            continue
+        lidar = lidars.get(name, {})
+        if not isinstance(lidar, dict):
+            lidar = {}
+        if not parse_bool(lidar.get("enabled", True), True):
+            continue
+        emit(f"lidar:{name}:cloud", lidar.get("cloud_topic", f"{topic_prefix()}/{name}/lidar"), "sensor_msgs/msg/PointCloud2")
+PY
+}
+
+wait_for_topic_once() {
+  local label="$1"
+  local topic="$2"
+  local msg_type="$3"
+  local timeout_sec="$4"
+  local log_file
+  log_file="$(mktemp "/tmp/autonomy_sensor_${label//[^A-Za-z0-9_]/_}.XXXXXX.log")"
+
+  printf 'Waiting for %s: %s (%ss)\n' "${label}" "${topic}" "${timeout_sec}"
+  if timeout "${timeout_sec}" ros2 topic echo --once "${topic}" "${msg_type}" >"${log_file}" 2>&1; then
+    printf 'Sensor OK: %s -> %s\n' "${label}" "${topic}"
+    rm -f "${log_file}"
+    return 0
+  fi
+
+  printf 'ERROR: expected sensor data was not received: %s -> %s\n' "${label}" "${topic}" >&2
+  printf '       message type: %s\n' "${msg_type}" >&2
+  printf '       inspect with: ros2 topic info -v %s\n' "${topic}" >&2
+  if [[ -s "${log_file}" ]]; then
+    printf '       ros2 topic echo output:\n' >&2
+    sed 's/^/         /' "${log_file}" >&2
+  fi
+  rm -f "${log_file}"
+  return 1
+}
+
+wait_for_expected_sensors() {
+  if is_simulation_launch; then
+    return 0
+  fi
+
+  local config_file="$1"
+  local timeout_sec="${AUTONOMY_SENSOR_TIMEOUT_SEC:-25}"
+  local expected=()
+  mapfile -t expected < <(read_expected_sensor_topics "${config_file}")
+  if [[ "${#expected[@]}" -eq 0 ]]; then
+    echo "No expected real sensor topics found in autonomy config; skipping sensor guard."
+    return 0
+  fi
+
+  echo "Checking expected real sensors before keeping autonomy launch alive."
+  echo "Sensor timeout: ${timeout_sec}s per topic (override with AUTONOMY_SENSOR_TIMEOUT_SEC)."
+
+  local pids=()
+  local item label topic msg_type
+  for item in "${expected[@]}"; do
+    IFS='|' read -r label topic msg_type <<<"${item}"
+    wait_for_topic_once "${label}" "${topic}" "${msg_type}" "${timeout_sec}" &
+    pids+=("$!")
+  done
+
+  local failed=0
+  local pid
+  for pid in "${pids[@]}"; do
+    if ! wait "${pid}"; then
+      failed=1
+    fi
+  done
+
+  if [[ "${failed}" -ne 0 ]]; then
+    echo "ERROR: one or more expected sensors did not publish data; stopping launch." >&2
+    return 1
+  fi
+  return 0
+}
+
+launch_pid=""
+
+start_autonomy_launch() {
+  run_autonomy_launch &
+  launch_pid="$!"
+}
+
+stop_autonomy_launch() {
+  if [[ -n "${launch_pid}" ]] && kill -0 "${launch_pid}" >/dev/null 2>&1; then
+    echo "Stopping autonomy launch pid=${launch_pid}"
+    kill "${launch_pid}" >/dev/null 2>&1 || true
+    wait "${launch_pid}" >/dev/null 2>&1 || true
+  fi
+}
+
+run_autonomy_launch_guarded() {
+  start_autonomy_launch
+  if ! wait_for_expected_sensors "${resolved_autonomy_config}"; then
+    stop_autonomy_launch
+    return 1
+  fi
+  wait "${launch_pid}"
+}
+
 data_logger_pid=""
 
 cleanup_data_logger() {
@@ -687,16 +865,13 @@ start_data_logger() {
 }
 
 if is_true "${save_data_arg}"; then
-  trap cleanup_data_logger EXIT INT TERM
+  trap 'stop_autonomy_launch; cleanup_data_logger' EXIT INT TERM
   start_data_logger
-  run_autonomy_launch
+  run_autonomy_launch_guarded
   launch_status="$?"
   cleanup_data_logger
   exit "${launch_status}"
 fi
 
-if [[ -f "${source_launch_file}" ]]; then
-  exec ros2 launch "${source_launch_file}" "${launch_args[@]}"
-fi
-
-exec ros2 launch autonomy autonomy.launch.py "${launch_args[@]}"
+trap stop_autonomy_launch EXIT INT TERM
+run_autonomy_launch_guarded
