@@ -110,7 +110,7 @@ Change mode at runtime:
 
 ```bash
 ros2 service call /autonomy_manager/set_mode autonomy/srv/SetAutonomyMode \
-"{operation_mode: 'ADAS', speed_limit: 0.8, enable_ai: true, segmentation: false}"
+"{operation_mode: 'AUTO', speed_limit: 0.8, enable_ai: true, segmentation: false}"
 ```
 
 ESTOP is derived from `/robot_report`. `physical_estop` or `comm_estop` forces
@@ -274,7 +274,7 @@ For normal robot state tracking, `/robot_report` controls only the `IDLE`/`DRIVE
 autonomy modes. Robot states `READY`, `STAND`, `FLAT_DRIVE`, `ROUGH_DRIVE`, and
 `CUSTOM_DRIVE` (`robot_state` 2-6) select autonomy `DRIVE`. Robot states `IDLE`,
 `INIT`, `FREEZE`, `SIT`, and `LIE` (`robot_state` 0, 1, 7, 8, 9) select autonomy
-`IDLE`. `ADAS`, `FSD`, and `MAPPING` remain service-requested modes.
+`IDLE`. `AUTO` and `MAPPING` remain service-requested modes.
 
 ### Autonomy status
 

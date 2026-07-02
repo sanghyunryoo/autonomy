@@ -41,10 +41,8 @@ std::string modeName(const std::int8_t mode)
       return "IDLE";
     case AutonomyStateMsg::DRIVE:
       return "DRIVE";
-    case AutonomyStateMsg::ADAS:
-      return "ADAS";
-    case AutonomyStateMsg::FSD:
-      return "FSD";
+    case AutonomyStateMsg::AUTO:
+      return "AUTO";
     case AutonomyStateMsg::MAPPING:
       return "MAPPING";
     case AutonomyStateMsg::TRACKING:
@@ -64,11 +62,8 @@ std::int8_t parseMode(const std::string & text)
   if (value == "DRIVE") {
     return AutonomyStateMsg::DRIVE;
   }
-  if (value == "ADAS") {
-    return AutonomyStateMsg::ADAS;
-  }
-  if (value == "FSD") {
-    return AutonomyStateMsg::FSD;
+  if (value == "AUTO" || value == "ADAS" || value == "FSD") {
+    return AutonomyStateMsg::AUTO;
   }
   if (value == "MAPPING") {
     return AutonomyStateMsg::MAPPING;
@@ -82,7 +77,8 @@ std::int8_t parseMode(const std::string & text)
 bool validModeText(const std::string & text)
 {
   const auto value = upper(text);
-  return value == "IDLE" || value == "DRIVE" || value == "ADAS" || value == "FSD" ||
+  return value == "IDLE" || value == "DRIVE" || value == "AUTO" ||
+         value == "ADAS" || value == "FSD" ||
          value == "MAPPING" || value == "TRACKING";
 }
 
@@ -166,10 +162,7 @@ public:
       "managed_nodes.drive",
       {"drive_mapper_node", "pointcloud_merge_node", "elevation_mapping_node"});
     declare_parameter<std::vector<std::string>>(
-      "managed_nodes.adas",
-      std::vector<std::string>{});
-    declare_parameter<std::vector<std::string>>(
-      "managed_nodes.fsd",
+      "managed_nodes.auto",
       std::vector<std::string>{});
     declare_parameter<std::vector<std::string>>(
       "managed_nodes.mapping",
@@ -189,8 +182,7 @@ public:
     map_dir_ = get_parameter("map_dir").as_string();
     managed_nodes_[AutonomyStateMsg::IDLE] = getStringArray("managed_nodes.idle");
     managed_nodes_[AutonomyStateMsg::DRIVE] = getStringArray("managed_nodes.drive");
-    managed_nodes_[AutonomyStateMsg::ADAS] = getStringArray("managed_nodes.adas");
-    managed_nodes_[AutonomyStateMsg::FSD] = getStringArray("managed_nodes.fsd");
+    managed_nodes_[AutonomyStateMsg::AUTO] = getStringArray("managed_nodes.auto");
     managed_nodes_[AutonomyStateMsg::MAPPING] = getStringArray("managed_nodes.mapping");
     managed_nodes_[AutonomyStateMsg::TRACKING] = getStringArray("managed_nodes.tracking");
     managed_nodes_[AutonomyStateMsg::ERROR] = {};
@@ -381,7 +373,7 @@ private:
     msg.header.stamp = now();
     msg.mode = reported_mode;
     msg.mode_name = modeName(reported_mode);
-    msg.autonomy_enabled = mode_ == AutonomyStateMsg::ADAS || mode_ == AutonomyStateMsg::FSD ||
+    msg.autonomy_enabled = mode_ == AutonomyStateMsg::AUTO ||
       mode_ == AutonomyStateMsg::TRACKING;
     msg.estop_active = estop_active_;
     msg.error_active = internal_error_active;

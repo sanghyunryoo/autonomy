@@ -1,16 +1,12 @@
 robot:
-  model: f4
+  model: f16
 
 operation_modes:
   drive:
     camera_roles: [front, rear]
     require_roles: []
 
-  adas:
-    camera_roles: [front, rear, adas]
-    require_roles: [adas]
-
-  fsd:
+  auto:
     camera_roles: [front, rear, adas]
     require_roles: [adas]
 
@@ -74,7 +70,8 @@ dds_network:
 drive_mapper_node:
   ros__parameters:
     publish_static_tf: true
-    publish_stabilized_tf: true
+    publish_attitude_correction: true
+    attitude_correction_topic: ~/attitude_correction
     low_pass_alpha: 0.08
     min_accel_norm: 3.0
     max_accel_norm: 20.0
@@ -83,10 +80,13 @@ drive_mapper_node:
 
 pointcloud_merge_node:
   ros__parameters:
+    target_frame: base_link
     publish_rate_hz: 50.0
     max_cloud_age_sec: 0.0
     respect_autonomy_mode: false
     autonomy_status_topic: /autonomy_manager/status
+    attitude_correction.enabled: true
+    attitude_correction.topic: /drive_mapper_node/attitude_correction
 
     depth_filter:
       min_range: 0.05
@@ -148,9 +148,30 @@ point_lio_monitor_node:
     max_linear_speed: 3.0
     max_angular_speed: 3.0
 
+global_costmap_node:
+  ros__parameters:
+    cloud_topic: /cloud_registered
+    costmap_topic: ~/global_costmap
+    resolution: 0.10
+    x_min: -20.0
+    x_max: 20.0
+    y_min: -20.0
+    y_max: 20.0
+    min_obstacle_z: 0.05
+    max_obstacle_z: 1.50
+    hit_increment: 8
+    decay_per_publish: 0
+    publish_rate_hz: 2.0
+
+local_costmap_node:
+  ros__parameters:
+    height_scan_topic: /elevation_mapping_node/local_terrain_map
+    costmap_topic: ~/local_costmap
+    lethal_height: 0.18
+    inscribed_height: 0.08
+
 global_planner_node:
   ros__parameters:
-    enable_map: false
     local_goal_topic: /global_planner_node/local_goal
     path_topic: /global_planner_node/path
     lookahead_distance: 1.2
@@ -160,11 +181,12 @@ global_planner_node:
 local_planner_node:
   ros__parameters:
     enabled: false
-    enable_map: false
     height_scan_topic: /elevation_mapping_node/local_terrain_map
     command_filter_topic: /command_filter
     goal_topic: /global_planner_node/local_goal
     cmd_vel_topic: /local_planner_node/cmd_vel
+    command_user_topic: /control_command/autopilot
+    command_child_frame_id: base_link
     publish_rate_hz: 20.0
     max_vx: 0.30
     max_vy: 0.15
@@ -250,9 +272,9 @@ elevation_mapping_node:
       point_stride: 1
       max_range: 2.5
       print_frame_info: false 
-      base_height: 0.33
+      base_height: 0.47957
       clipping_min: 0.0
-      clipping_max: 0.33
+      clipping_max: 0.47957
       fill_debug_outputs: true
 
       uncertainty:
@@ -296,6 +318,10 @@ elevation_mapping_node:
       runtime:
         min_runtime_fps: 60
 
+    costmap:
+      inscribed_height: 0.08
+      lethal_height: 0.18
+
     fov_filter:
       enabled: true
       h_fov_deg: 87.0
@@ -331,8 +357,7 @@ autonomy_manager:
     publish_rate_hz: 10.0
     managed_nodes:
       drive: [drive_mapper_node, pointcloud_merge_node, elevation_mapping_node]
-      adas: [drive_mapper_node, pointcloud_merge_node, elevation_mapping_node, point_lio_lidar_adapter_node, point_lio_monitor_node, global_planner_node, local_planner_node]
-      fsd: [drive_mapper_node, pointcloud_merge_node, elevation_mapping_node, point_lio_lidar_adapter_node, point_lio_monitor_node, global_planner_node, local_planner_node]
+      auto: [drive_mapper_node, pointcloud_merge_node, elevation_mapping_node, point_lio_lidar_adapter_node, point_lio_monitor_node, global_costmap_node, global_planner_node, local_planner_node]
 
 rviz2:
   ros__parameters:

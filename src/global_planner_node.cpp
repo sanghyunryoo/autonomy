@@ -20,8 +20,7 @@ public:
   GlobalPlannerNode()
   : Node("global_planner_node")
   {
-    enable_map_ = declare_parameter<bool>("enable_map", false);
-    target_frame_ = declare_parameter<std::string>("target_frame", "base_stabilized");
+    target_frame_ = declare_parameter<std::string>("target_frame", "base_footprint");
     local_goal_topic_ = declare_parameter<std::string>("local_goal_topic", "/global_planner_node/local_goal");
     path_topic_ = declare_parameter<std::string>("path_topic", "/global_planner_node/path");
     lookahead_distance_ = std::max(0.1, declare_parameter<double>("lookahead_distance", 1.2));
@@ -37,29 +36,17 @@ public:
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
       [this]() { tick(); });
 
-    if (enable_map_) {
-      RCLCPP_ERROR(
-        get_logger(),
-        "Map-based global planning is requested but no map backend is implemented yet.");
-    } else {
-      RCLCPP_INFO(
-        get_logger(),
-        "Mapless global planner publishing local goal %.2fm ahead in %s.",
-        lookahead_distance_,
-        target_frame_.c_str());
-    }
+    RCLCPP_INFO(
+      get_logger(),
+      "Mapless global planner publishing local goal %.2fm ahead in %s.",
+      lookahead_distance_,
+      target_frame_.c_str());
   }
 
 private:
   void tick()
   {
     std_msgs::msg::String heartbeat;
-    if (enable_map_) {
-      heartbeat.data = "error:map_planning_not_supported";
-      heartbeat_pub_->publish(heartbeat);
-      return;
-    }
-
     geometry_msgs::msg::PoseStamped goal;
     goal.header.stamp = now();
     goal.header.frame_id = target_frame_;
@@ -82,8 +69,7 @@ private:
     heartbeat_pub_->publish(heartbeat);
   }
 
-  bool enable_map_{false};
-  std::string target_frame_{"base_stabilized"};
+  std::string target_frame_{"base_footprint"};
   std::string local_goal_topic_{"/global_planner_node/local_goal"};
   std::string path_topic_{"/global_planner_node/path"};
   double lookahead_distance_{1.2};

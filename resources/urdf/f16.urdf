@@ -1103,7 +1103,7 @@
       link="A_camera_link" />
   </joint>
   <link
-    name="livox_frame">
+    name="lidar_link">
     <inertial>
       <origin
         xyz="0 0 0"
@@ -1128,6 +1128,6 @@
     <parent
       link="base_link" />
     <child
-      link="livox_frame" />
+      link="lidar_link" />
   </joint>
 </robot>

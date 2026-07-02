@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <regex>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -22,7 +24,6 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/static_transform_broadcaster.h>
-#include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
 namespace autonomy
@@ -106,17 +107,18 @@ public:
   : Node("drive_mapper_node"),
     tf_buffer_(get_clock()),
     tf_listener_(tf_buffer_),
-    static_tf_broadcaster_(this),
-    tf_broadcaster_(this)
+    static_tf_broadcaster_(this)
   {
     loadParameters();
     binding_pub_ = create_publisher<std_msgs::msg::String>("~/camera_bindings", 10);
     heartbeat_pub_ = create_publisher<std_msgs::msg::String>("/autonomy/heartbeat/drive_mapper_node", 10);
+    attitude_correction_pub_ =
+      create_publisher<geometry_msgs::msg::Vector3Stamped>(attitude_correction_topic_, 10);
 
     if (publish_static_tf_) {
       publishUrdfStaticTf();
     }
-    if (publish_stabilized_tf_ && !front_imu_topic_.empty()) {
+    if (publish_attitude_correction_ && !front_imu_topic_.empty()) {
       imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
         front_imu_topic_,
         rclcpp::SensorDataQoS(),
@@ -125,7 +127,9 @@ public:
 
     status_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { publishStatus(); });
     heartbeat_timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() { publishHeartbeat(); });
-    tf_timer_ = create_wall_timer(std::chrono::milliseconds(10), [this]() { publishStabilizedTf(); });
+    correction_timer_ = create_wall_timer(
+      std::chrono::milliseconds(10),
+      [this]() { publishAttitudeCorrection(); });
     publishStatus();
   }
 
@@ -134,7 +138,9 @@ private:
   {
     simulation_ = declare_parameter<bool>("simulation", false);
     publish_static_tf_ = declare_parameter<bool>("publish_static_tf", true);
-    publish_stabilized_tf_ = declare_parameter<bool>("publish_stabilized_tf", true);
+    publish_attitude_correction_ = declare_parameter<bool>("publish_attitude_correction", true);
+    attitude_correction_topic_ =
+      declare_parameter<std::string>("attitude_correction_topic", "~/attitude_correction");
     low_pass_alpha_ = std::clamp(declare_parameter<double>("low_pass_alpha", 0.08), 0.0, 1.0);
     min_accel_norm_ = std::max(0.1, declare_parameter<double>("min_accel_norm", 3.0));
     max_accel_norm_ = std::max(min_accel_norm_, declare_parameter<double>("max_accel_norm", 20.0));
@@ -147,8 +153,6 @@ private:
     urdf_path_ = declare_parameter<std::string>(
       "urdf_path", "src/autonomy/resources/urdf/" + model_ + ".urdf");
     base_frame_id_ = declare_parameter<std::string>("base_frame_id", frame_prefix_ + "base_link");
-    stabilized_frame_id_ =
-      declare_parameter<std::string>("stabilized_frame_id", frame_prefix_ + "base_stabilized");
     front_imu_topic_ = declare_parameter<std::string>("front_imu_topic", "");
     front_imu_frame_id_ = declare_parameter<std::string>("front_imu_frame_id", "");
 
@@ -239,7 +243,6 @@ private:
       if (parent.empty() || child.empty() || parent == child) {
         continue;
       }
-
       std::array<double, 3> xyz{0.0, 0.0, 0.0};
       std::array<double, 3> rpy{0.0, 0.0, 0.0};
       const auto origin_attrs = regexGroup(body, origin_re);
@@ -289,6 +292,8 @@ private:
     if (!has_attitude_estimate_) {
       roll_ = roll;
       pitch_ = pitch;
+      initial_roll_ = roll;
+      initial_pitch_ = pitch;
       has_attitude_estimate_ = true;
     } else {
       roll_ = (1.0 - low_pass_alpha_) * roll_ + low_pass_alpha_ * roll;
@@ -325,30 +330,34 @@ private:
     }
   }
 
-  void publishStabilizedTf()
+  void publishAttitudeCorrection()
   {
-    if (!publish_stabilized_tf_ || !has_attitude_estimate_) {
+    if (!publish_attitude_correction_) {
       return;
     }
-    tf_broadcaster_.sendTransform(makeTransform(
-      base_frame_id_,
-      stabilized_frame_id_,
-      {0.0, 0.0, 0.0},
-      {roll_sign_ * roll_, pitch_sign_ * pitch_, 0.0}));
+    geometry_msgs::msg::Vector3Stamped msg;
+    msg.header.stamp = now();
+    msg.header.frame_id = base_frame_id_;
+    if (has_attitude_estimate_) {
+      msg.vector.x = roll_sign_ * (roll_ - initial_roll_);
+      msg.vector.y = pitch_sign_ * (pitch_ - initial_pitch_);
+    }
+    attitude_correction_pub_->publish(msg);
   }
 
   void publishHeartbeat()
   {
     std_msgs::msg::String msg;
-    if (publish_stabilized_tf_ && !has_attitude_estimate_) {
+    if (publish_attitude_correction_ && !has_attitude_estimate_) {
       msg.data = "waiting_for_imu";
-    } else if (simulation_) {
-      msg.data = "ready:simulation_tf";
     } else {
-      msg.data = "ready";
-    }
-    if (has_attitude_estimate_) {
-      msg.data += ":imu_frame=" + last_imu_frame_ + ":transform_frame=" + last_transform_frame_;
+      const double roll = has_attitude_estimate_ ? roll_sign_ * (roll_ - initial_roll_) : 0.0;
+      const double pitch = has_attitude_estimate_ ? pitch_sign_ * (pitch_ - initial_pitch_) : 0.0;
+      std::ostringstream out;
+      out << std::fixed << std::setprecision(6)
+          << "ready:roll=" << roll
+          << ":pitch=" << pitch;
+      msg.data = out.str();
     }
     heartbeat_pub_->publish(msg);
   }
@@ -357,7 +366,6 @@ private:
   {
     std::ostringstream out;
     out << "{\"base_frame_id\":\"" << jsonEscape(base_frame_id_) << "\",";
-    out << "\"stabilized_frame_id\":\"" << jsonEscape(stabilized_frame_id_) << "\",";
     out << "\"imu_topic\":\"" << jsonEscape(front_imu_topic_) << "\",";
     out << "\"imu_frame_id\":\"" << jsonEscape(front_imu_frame_id_) << "\",";
     out << "\"runtime\":\"" << (simulation_ ? "simulation" : "real") << "\",";
@@ -386,7 +394,7 @@ private:
 
   bool simulation_{false};
   bool publish_static_tf_{true};
-  bool publish_stabilized_tf_{true};
+  bool publish_attitude_correction_{true};
   double low_pass_alpha_{0.08};
   double min_accel_norm_{3.0};
   double max_accel_norm_{20.0};
@@ -394,13 +402,15 @@ private:
   double pitch_sign_{-1.0};
   double roll_{0.0};
   double pitch_{0.0};
+  double initial_roll_{0.0};
+  double initial_pitch_{0.0};
   bool has_attitude_estimate_{false};
   std::string model_{"f4"};
   std::string frame_prefix_{"f4/"};
   std::string topic_prefix_{"/f4"};
   std::string urdf_path_;
   std::string base_frame_id_{"f4/base_link"};
-  std::string stabilized_frame_id_{"f4/base_stabilized"};
+  std::string attitude_correction_topic_{"~/attitude_correction"};
   std::string front_imu_topic_;
   std::string front_imu_frame_id_;
   std::string last_imu_frame_;
@@ -409,15 +419,15 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr binding_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr attitude_correction_pub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::TimerBase::SharedPtr status_timer_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
-  rclcpp::TimerBase::SharedPtr tf_timer_;
+  rclcpp::TimerBase::SharedPtr correction_timer_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   tf2_ros::StaticTransformBroadcaster static_tf_broadcaster_;
-  tf2_ros::TransformBroadcaster tf_broadcaster_;
 };
 
 }  // namespace autonomy

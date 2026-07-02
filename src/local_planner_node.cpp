@@ -10,8 +10,10 @@
 #include <vector>
 
 #include <core/msg/command_filter.hpp>
+#include <core/msg/command_user.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
@@ -40,13 +42,16 @@ public:
   LocalPlannerNode()
   : Node("local_planner_node")
   {
-    enable_map_ = declare_parameter<bool>("enable_map", false);
     enabled_ = declare_parameter<bool>("enabled", false);
     height_scan_topic_ = declare_parameter<std::string>(
       "height_scan_topic", "/elevation_mapping_node/local_terrain_map");
     command_filter_topic_ = declare_parameter<std::string>("command_filter_topic", "/command_filter");
     goal_topic_ = declare_parameter<std::string>("goal_topic", "/global_planner_node/local_goal");
     cmd_vel_topic_ = declare_parameter<std::string>("cmd_vel_topic", "/local_planner_node/cmd_vel");
+    command_user_topic_ = declare_parameter<std::string>(
+      "command_user_topic", "/control_command/autopilot");
+    command_frame_id_ = declare_parameter<std::string>("command_frame_id", "odom");
+    command_child_frame_id_ = declare_parameter<std::string>("command_child_frame_id", "base_link");
     publish_rate_hz_ = std::max(1.0, declare_parameter<double>("publish_rate_hz", 20.0));
     max_vx_ = std::max(0.0, declare_parameter<double>("max_vx", 0.35));
     max_vy_ = std::max(0.0, declare_parameter<double>("max_vy", 0.22));
@@ -66,6 +71,7 @@ public:
 
     heartbeat_pub_ = create_publisher<std_msgs::msg::String>("/autonomy/heartbeat/local_planner_node", 10);
     cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic_, 10);
+    command_user_pub_ = create_publisher<core::msg::CommandUser>(command_user_topic_, 10);
     scan_sub_ = create_subscription<autonomy::msg::MaskedHeightScan>(
       height_scan_topic_,
       rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile(),
@@ -100,10 +106,11 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Mapless terrain DWA local planner listening scan=%s goal=%s cmd=%s.",
+      "Mapless terrain DWA local planner listening scan=%s goal=%s cmd=%s command_user=%s.",
       height_scan_topic_.c_str(),
       goal_topic_.c_str(),
-      cmd_vel_topic_.c_str());
+      cmd_vel_topic_.c_str(),
+      command_user_topic_.c_str());
   }
 
 private:
@@ -131,12 +138,6 @@ private:
   void tick()
   {
     std_msgs::msg::String heartbeat;
-    if (enable_map_) {
-      publishStop();
-      heartbeat.data = "error:map_local_planning_not_supported";
-      heartbeat_pub_->publish(heartbeat);
-      return;
-    }
     if (!enabled_) {
       publishStop();
       heartbeat.data = "ready:disabled";
@@ -413,6 +414,19 @@ private:
     cmd.linear.y = candidate.vy;
     cmd.angular.z = candidate.wz;
     cmd_pub_->publish(cmd);
+
+    core::msg::CommandUser command;
+    command.odom.header.stamp = now();
+    command.odom.header.frame_id = command_frame_id_;
+    command.odom.child_frame_id = command_child_frame_id_;
+    command.odom.pose.pose.orientation.w = 1.0;
+    command.odom.twist.twist = cmd;
+    command.event.estop = false;
+    command.event.wake = false;
+    command.event.sleep = false;
+    command.event.rough_drive_toggle = false;
+    command_user_pub_->publish(command);
+
     if (dds_pub_) {
       dds_pub_->publish({
         static_cast<float>(cmd.linear.x),
@@ -433,12 +447,14 @@ private:
     return std::string(buffer);
   }
 
-  bool enable_map_{false};
   bool enabled_{false};
   std::string height_scan_topic_;
   std::string command_filter_topic_;
   std::string goal_topic_;
   std::string cmd_vel_topic_;
+  std::string command_user_topic_;
+  std::string command_frame_id_{"odom"};
+  std::string command_child_frame_id_{"base_link"};
   double publish_rate_hz_{20.0};
   double max_vx_{0.35};
   double max_vy_{0.22};
@@ -465,6 +481,7 @@ private:
   std::unique_ptr<DdsLinearVelocityPublisher> dds_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<core::msg::CommandUser>::SharedPtr command_user_pub_;
   rclcpp::Subscription<autonomy::msg::MaskedHeightScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<core::msg::CommandFilter>::SharedPtr filter_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;

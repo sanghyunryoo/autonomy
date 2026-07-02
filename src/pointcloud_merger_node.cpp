@@ -11,6 +11,7 @@
 #include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <tf2/exceptions.h>
+#include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -35,6 +36,10 @@ void PointCloudMergerNode::loadParameters()
   min_range_ = declare_parameter<double>("depth_filter.min_range", min_range_);
   max_range_ = declare_parameter<double>("depth_filter.max_range", max_range_);
   pixel_stride_ = declare_parameter<int>("depth_filter.pixel_stride", pixel_stride_);
+  attitude_correction_enabled_ =
+    declare_parameter<bool>("attitude_correction.enabled", attitude_correction_enabled_);
+  attitude_correction_topic_ =
+    declare_parameter<std::string>("attitude_correction.topic", attitude_correction_topic_);
   respect_autonomy_mode_ = declare_parameter<bool>(
     "respect_autonomy_mode", respect_autonomy_mode_);
   autonomy_status_topic_ = declare_parameter<std::string>(
@@ -162,6 +167,19 @@ void PointCloudMergerNode::createIo()
       lidar.frame_id.c_str());
   }
 
+  if (attitude_correction_enabled_) {
+    attitude_correction_sub_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      attitude_correction_topic_,
+      rclcpp::QoS(10),
+      [this](geometry_msgs::msg::Vector3Stamped::SharedPtr msg) {
+        onAttitudeCorrection(std::move(msg));
+      });
+    RCLCPP_INFO(
+      get_logger(),
+      "Subscribing to attitude correction: %s",
+      attitude_correction_topic_.c_str());
+  }
+
   auto output_qos = rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile();
   merged_cloud_pub_ = create_publisher<PointCloudMsg>("~/merged_points", output_qos);
   heartbeat_pub_ = create_publisher<std_msgs::msg::String>(
@@ -244,6 +262,13 @@ void PointCloudMergerNode::onLidarCloud(const std::string & lidar_name, PointClo
     msg->width * msg->height);
 
   latest_lidar_clouds_[lidar_name] = std::move(msg);
+}
+
+void PointCloudMergerNode::onAttitudeCorrection(geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+{
+  attitude_roll_ = msg->vector.x;
+  attitude_pitch_ = msg->vector.y;
+  has_attitude_correction_ = true;
 }
 
 void PointCloudMergerNode::onPublishTimer()
@@ -450,6 +475,13 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
 
   tf2::Transform transform;
   tf2::fromMsg(transform_msg.transform, transform);
+  tf2::Transform attitude_correction;
+  attitude_correction.setIdentity();
+  if (attitude_correction_enabled_ && has_attitude_correction_) {
+    tf2::Quaternion quaternion;
+    quaternion.setRPY(attitude_roll_, attitude_pitch_, 0.0);
+    attitude_correction.setRotation(quaternion);
+  }
 
   const auto stride = static_cast<std::uint32_t>(std::max(1, pixel_stride_));
 
@@ -499,7 +531,7 @@ bool PointCloudMergerNode::appendDepthAsTransformedCloud(
       const double x = (static_cast<double>(u) - cx) * z / fx;
       const double y = (static_cast<double>(v) - cy) * z / fy;
 
-      const auto transformed = transform * tf2::Vector3(x, y, z);
+      const auto transformed = attitude_correction * (transform * tf2::Vector3(x, y, z));
 
       *out_x = static_cast<float>(transformed.x());
       *out_y = static_cast<float>(transformed.y());
@@ -572,6 +604,13 @@ bool PointCloudMergerNode::appendLidarAsTransformedCloud(
 
   tf2::Transform transform;
   tf2::fromMsg(transform_msg.transform, transform);
+  tf2::Transform attitude_correction;
+  attitude_correction.setIdentity();
+  if (attitude_correction_enabled_ && has_attitude_correction_) {
+    tf2::Quaternion quaternion;
+    quaternion.setRPY(attitude_roll_, attitude_pitch_, 0.0);
+    attitude_correction.setRotation(quaternion);
+  }
 
   const auto input_point_count = static_cast<std::size_t>(cloud.width) * cloud.height;
   const auto old_point_count = static_cast<std::size_t>(output.width) * output.height;
@@ -601,7 +640,7 @@ bool PointCloudMergerNode::appendLidarAsTransformedCloud(
         continue;
       }
 
-      const auto transformed = transform * tf2::Vector3(*in_x, *in_y, *in_z);
+      const auto transformed = attitude_correction * (transform * tf2::Vector3(*in_x, *in_y, *in_z));
       *out_x = static_cast<float>(transformed.x());
       *out_y = static_cast<float>(transformed.y());
       *out_z = static_cast<float>(transformed.z());

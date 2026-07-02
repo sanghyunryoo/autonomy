@@ -218,7 +218,7 @@ def _frame_prefix_from_target(target_frame):
 
 def _frame_prefix(data):
     params = data.get("pointcloud_merge_node", {}).get("ros__parameters", {})
-    target_frame = str(params.get("target_frame", _robot_frame(data, "base_stabilized_link", "base_stabilized")))
+    target_frame = str(params.get("target_frame", _robot_frame(data, "base_link", "base_link")))
     default_prefix = _frame_prefix_from_target(target_frame) or _robot_frame_prefix(data)
     return str(params.get("frame_prefix", default_prefix))
 
@@ -321,8 +321,8 @@ def _realsense_actions(data, simulation):
 def _merge_params(data, space):
     params = _node_params(data, "pointcloud_merge_node")
     prefix = str(params.pop("frame_prefix", _frame_prefix(data)))
-    params["target_frame"] = str(
-        params.get("target_frame", _robot_frame(data, "base_stabilized_link", "base_stabilized")))
+    default_target = _robot_frame(data, "base_link", "base_link")
+    params["target_frame"] = _merge_frame(params.get("target_frame", default_target), prefix)
 
     camera_names = []
     cameras = {}
@@ -405,7 +405,6 @@ def _mapper_params(data, space):
         "urdf_path": _resolve_package_path(
             _robot_params(data).get("urdf_path", f"resources/urdf/{model}.urdf")),
         "base_frame_id": _robot_frame(data, "base_link", "base_link"),
-        "stabilized_frame_id": _robot_frame(data, "base_stabilized_link", "base_stabilized"),
         "front_imu_topic": front_imu_topic,
         "front_imu_frame_id": front_imu_frame,
         "camera_roles": roles,
@@ -551,6 +550,8 @@ def _point_lio_params(data):
         "mapping.lidar_meas_cov": 0.05,
         "odom_header_frame_id": _robot_frame(data, "map_frame", "map"),
         "odom_child_frame_id": _robot_frame(data, "base_link", "base_link"),
+        "odom.footprint_frame_id": _robot_frame(data, "base_footprint_link", "base_footprint"),
+        "odom.publish_footprint_tf": True,
         "publish.scan_bodyframe_pub_en": False,
         "runtime_pos_log_enable": False,
     }
@@ -572,11 +573,24 @@ def _point_lio_monitor_params(data):
     return params
 
 
-def _planner_params(data, node_name, enable_map, enable_planning):
+def _global_costmap_params(data):
+    params = _node_params(data, "global_costmap_node")
+    params.setdefault("cloud_topic", "/cloud_registered")
+    params.setdefault("frame_id", _robot_frame(data, "map_frame", "map"))
+    return params
+
+
+def _local_costmap_params(data):
+    params = _node_params(data, "local_costmap_node")
+    params.setdefault("height_scan_topic", "/elevation_mapping_node/local_terrain_map")
+    params.setdefault("frame_id", _robot_frame(data, "map_frame", "map"))
+    return params
+
+
+def _planner_params(data, node_name, enable_planning):
     params = _node_params(data, node_name)
-    params["enable_map"] = enable_map
     if node_name == "global_planner_node":
-        params.setdefault("target_frame", _robot_frame(data, "base_stabilized_link", "base_stabilized"))
+        params.setdefault("target_frame", _robot_frame(data, "base_footprint_link", "base_footprint"))
     if node_name == "local_planner_node":
         params["enabled"] = enable_planning
     return params
@@ -607,21 +621,14 @@ def _worker_node(
 def _managed_nodes():
     return {
         "managed_nodes.drive": ["drive_mapper_node", "pointcloud_merge_node", "elevation_mapping_node"],
-        "managed_nodes.adas": [
+        "managed_nodes.auto": [
             "drive_mapper_node",
             "pointcloud_merge_node",
             "elevation_mapping_node",
             "point_lio_lidar_adapter_node",
             "point_lio_monitor_node",
-            "global_planner_node",
-            "local_planner_node",
-        ],
-        "managed_nodes.fsd": [
-            "drive_mapper_node",
-            "pointcloud_merge_node",
-            "elevation_mapping_node",
-            "point_lio_lidar_adapter_node",
-            "point_lio_monitor_node",
+            "global_costmap_node",
+            "local_costmap_node",
             "global_planner_node",
             "local_planner_node",
         ],
@@ -643,23 +650,27 @@ def _make_stack(context, *args, **kwargs):
     simulation = _parse_bool(simulation_text, default=False)
     launch_rviz = _parse_bool(LaunchConfiguration("rviz").perform(context), default=False)
     requested_operation_mode = str(LaunchConfiguration("operation_mode").perform(context)).strip().lower() or "drive"
-    operation_mode = "adas" if requested_operation_mode == "fsd" else requested_operation_mode
+    operation_mode = "auto" if requested_operation_mode in ("adas", "fsd") else requested_operation_mode
     enable_map = _parse_bool(LaunchConfiguration("enable_map").perform(context), default=False)
     enable_planning = _parse_bool(LaunchConfiguration("enable_planning").perform(context), default=False)
     map_dir = LaunchConfiguration("map_dir").perform(context)
     data = _load_yaml(config_file)
     space = _binding_space(simulation_text)
     use_sim_time = {"use_sim_time": LaunchConfiguration("simulation")}
-    slam_enabled = operation_mode == "adas"
-    if operation_mode not in ("drive", "adas"):
+    slam_enabled = operation_mode == "auto"
+    if operation_mode not in ("drive", "auto"):
         return [
-            LogInfo(msg=f"{requested_operation_mode.upper()} currently not supported. Supported modes: DRIVE, ADAS. FSD is an ADAS alias."),
+            LogInfo(msg=f"{requested_operation_mode.upper()} currently not supported. Supported modes: DRIVE, AUTO."),
+        ]
+    if operation_mode == "auto" and enable_map:
+        return [
+            LogInfo(msg="AUTO enable_map=true is not implemented yet. Current AUTO supports mapless SLAM/local-terrain planning only."),
         ]
 
     actions = [
         LogInfo(msg=f"Autonomy {operation_mode.upper()} stack: mapper -> pointcloud merge -> elevation mapping."),
-        LogInfo(msg="Point-LIO SLAM and mapless planners enabled for ADAS." if slam_enabled else "Point-LIO SLAM and planners disabled for DRIVE."),
-        LogInfo(msg="Map planning requested; current map backend is not implemented." if enable_map else "Mapless planning enabled."),
+        LogInfo(msg="Point-LIO SLAM and mapless planners enabled for AUTO." if slam_enabled else "Point-LIO SLAM and planners disabled for DRIVE."),
+        LogInfo(msg="Mapless planning enabled."),
         LogInfo(msg="Local planner command output enabled." if enable_planning else "Local planner command output disabled."),
         LogInfo(msg=_dds_network_log_message(data)),
         *_realsense_actions(data, simulation),
@@ -698,8 +709,8 @@ def _make_stack(context, *args, **kwargs):
             output="screen",
         ),
     ]
-    if requested_operation_mode == "fsd":
-        actions.insert(1, LogInfo(msg="FSD requested as ADAS alias."))
+    if requested_operation_mode in ("adas", "fsd"):
+        actions.insert(1, LogInfo(msg=f"{requested_operation_mode.upper()} requested as AUTO alias."))
 
     if slam_enabled:
         actions.extend([
@@ -724,14 +735,26 @@ def _make_stack(context, *args, **kwargs):
                 output="screen",
             ),
             _worker_node(
+                "global_costmap_node",
+                [_global_costmap_params(data), use_sim_time],
+                name="global_costmap_node",
+                output="screen",
+            ),
+            _worker_node(
+                "local_costmap_node",
+                [_local_costmap_params(data), use_sim_time],
+                name="local_costmap_node",
+                output="screen",
+            ),
+            _worker_node(
                 "global_planner_node",
-                [_planner_params(data, "global_planner_node", enable_map, enable_planning), use_sim_time],
+                [_planner_params(data, "global_planner_node", enable_planning), use_sim_time],
                 name="global_planner_node",
                 output="screen",
             ),
             _worker_node(
                 "local_planner_node",
-                [_planner_params(data, "local_planner_node", enable_map, enable_planning), use_sim_time],
+                [_planner_params(data, "local_planner_node", enable_planning), use_sim_time],
                 name="local_planner_node",
                 output="screen",
             ),
@@ -759,7 +782,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "map_dir",
             default_value=str(package_share / "resources" / "map"),
-            description="Map directory for ADAS/FSD SLAM consumers.",
+            description="Map directory for AUTO SLAM consumers.",
         ),
         OpaqueFunction(function=_make_stack),
     ])

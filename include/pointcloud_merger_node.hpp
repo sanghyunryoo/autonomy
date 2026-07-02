@@ -7,6 +7,7 @@
 
 #include <builtin_interfaces/msg/time.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -55,6 +56,7 @@ private:
   void onCameraInfo(const std::string & camera_name, CameraInfoMsgPtr msg);
   void onDepth(const std::string & camera_name, ImageMsgPtr msg);
   void onLidarCloud(const std::string & lidar_name, PointCloudMsg::SharedPtr msg);
+  void onAttitudeCorrection(geometry_msgs::msg::Vector3Stamped::SharedPtr msg);
   void onPublishTimer();
   [[nodiscard]] bool processingActive() const;
 
@@ -83,6 +85,11 @@ private:
   double max_range_{2.5};
   int pixel_stride_{2};
   bool respect_autonomy_mode_{false};
+  bool attitude_correction_enabled_{true};
+  bool has_attitude_correction_{false};
+  double attitude_roll_{0.0};
+  double attitude_pitch_{0.0};
+  std::string attitude_correction_topic_{"/drive_mapper_node/attitude_correction"};
   bool has_autonomy_state_{false};
   int8_t autonomy_mode_{autonomy::msg::AutonomyState::IDLE};
   std::string autonomy_status_topic_{"/autonomy_manager/status"};
@@ -96,6 +103,7 @@ private:
   std::vector<rclcpp::Subscription<ImageMsg>::SharedPtr> depth_subscriptions_;
   std::vector<rclcpp::Subscription<CameraInfoMsg>::SharedPtr> camera_info_subscriptions_;
   std::vector<rclcpp::Subscription<PointCloudMsg>::SharedPtr> lidar_subscriptions_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr attitude_correction_sub_;
   rclcpp::Publisher<PointCloudMsg>::SharedPtr merged_cloud_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr publish_timer_;

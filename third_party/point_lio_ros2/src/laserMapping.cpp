@@ -8,6 +8,7 @@
 #include <so3_math.h>
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include "IMU_Processing.hpp"
 
 #include <nav_msgs/msg/odometry.hpp>
@@ -698,6 +699,41 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
     transform.header.stamp = odomAftMapped.header.stamp;
 
     tf_br->sendTransform(transform);
+
+    if (odom_publish_footprint_tf && !odom_footprint_frame_id.empty()) {
+        const Eigen::Quaterniond map_q_base(
+            odomAftMapped.pose.pose.orientation.w,
+            odomAftMapped.pose.pose.orientation.x,
+            odomAftMapped.pose.pose.orientation.y,
+            odomAftMapped.pose.pose.orientation.z);
+        const Eigen::Vector3d map_p_base(
+            odomAftMapped.pose.pose.position.x,
+            odomAftMapped.pose.pose.position.y,
+            odomAftMapped.pose.pose.position.z);
+
+        const Eigen::Matrix3d map_R_base = map_q_base.normalized().toRotationMatrix();
+        const double yaw = std::atan2(map_R_base(1, 0), map_R_base(0, 0));
+        const Eigen::AngleAxisd map_R_footprint_yaw(yaw, Eigen::Vector3d::UnitZ());
+        const Eigen::Vector3d map_p_footprint(map_p_base.x(), map_p_base.y(), 0.0);
+        const Eigen::Matrix3d base_R_footprint =
+            map_R_base.transpose() * map_R_footprint_yaw.toRotationMatrix();
+        const Eigen::Vector3d base_p_footprint =
+            map_R_base.transpose() * (map_p_footprint - map_p_base);
+        const Eigen::Quaterniond base_q_footprint(base_R_footprint);
+
+        geometry_msgs::msg::TransformStamped footprint_transform;
+        footprint_transform.header = transform.header;
+        footprint_transform.header.frame_id = odom_child_frame_id;
+        footprint_transform.child_frame_id = odom_footprint_frame_id;
+        footprint_transform.transform.translation.x = base_p_footprint.x();
+        footprint_transform.transform.translation.y = base_p_footprint.y();
+        footprint_transform.transform.translation.z = base_p_footprint.z();
+        footprint_transform.transform.rotation.x = base_q_footprint.x();
+        footprint_transform.transform.rotation.y = base_q_footprint.y();
+        footprint_transform.transform.rotation.z = base_q_footprint.z();
+        footprint_transform.transform.rotation.w = base_q_footprint.w();
+        tf_br->sendTransform(footprint_transform);
+    }
 }
 
 void publish_path(const rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr &pubPath) {

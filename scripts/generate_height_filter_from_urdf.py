@@ -1274,7 +1274,7 @@ def main():
     print("  )")
     if local_height_map_grid is not None:
         print("")
-        print("  # Add separately in adas/fsd modes to match local_terrain_map.grid:")
+        print("  # Add separately in auto mode to match local_terrain_map.grid:")
         print("  local_height_map = RayCasterFOVCfg(")
         print('      prim_path="{ENV_REGEX_NS}/Robot/base_link",')
         print(

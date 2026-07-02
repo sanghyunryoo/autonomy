@@ -321,8 +321,7 @@ class RealSenseUsbMapper(Node):
     def _default_operation_modes(self):
         return {
             "drive": {"camera_roles": ["front", "rear"], "require_roles": []},
-            "adas": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
-            "fsd": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
+            "auto": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
             "tracking": {"camera_roles": ["front", "rear", "adas"], "require_roles": ["adas"]},
         }
 

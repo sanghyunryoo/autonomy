@@ -23,13 +23,12 @@ for ROS launch and offline generation/utilities only.
 
 - IDLE: no autonomy-critical nodes required.
 - DRIVE: elevation stack only.
-- ADAS: elevation stack plus front-camera AI detection.
-- FSD: elevation stack, AI detection, RGB-D localization, global planner, RL local planner.
+- AUTO: elevation stack, Point-LIO SLAM, and mapless planner nodes.
 - MAPPING: elevation stack plus RGB-D localization.
 - ERROR: internal fault reporting state; it is not requested through
   `/autonomy_manager/set_mode`.
 - IDLE/DRIVE effective mode follows `/robot_report`: robot states 2-6 map to
-  DRIVE and states 0, 1, 7, 8, 9 map to IDLE. ADAS/FSD/MAPPING are selected by
+  DRIVE and states 0, 1, 7, 8, 9 map to IDLE. AUTO/MAPPING are selected by
   service request.
 - ESTOP is a safety latch, not an operation mode. When active, the effective mode
   is forced to IDLE to reduce board resource usage. Clearing ESTOP restores the

@@ -104,12 +104,23 @@ add_executable(global_planner_node
 )
 ament_target_dependencies(global_planner_node geometry_msgs nav_msgs rclcpp std_msgs)
 
+add_executable(global_costmap_node
+  src/global_costmap_node.cpp
+)
+ament_target_dependencies(global_costmap_node nav_msgs rclcpp sensor_msgs std_msgs)
+
+add_executable(local_costmap_node
+  src/local_costmap_node.cpp
+)
+ament_target_dependencies(local_costmap_node nav_msgs rclcpp std_msgs tf2 tf2_geometry_msgs tf2_ros)
+target_link_libraries(local_costmap_node "${cpp_typesupport_target}")
+
 add_executable(local_planner_node
   src/local_planner_node.cpp
   src/dds_linear_velocity_publisher.cpp
 )
 target_include_directories(local_planner_node PRIVATE include)
-ament_target_dependencies(local_planner_node core geometry_msgs rclcpp std_msgs)
+ament_target_dependencies(local_planner_node core geometry_msgs nav_msgs rclcpp std_msgs)
 target_link_libraries(local_planner_node "${cpp_typesupport_target}" autonomy_dds_types CycloneDDS::ddsc)
 
 add_executable(point_lio_lidar_adapter_node
@@ -125,7 +136,9 @@ ament_target_dependencies(point_lio_monitor_node nav_msgs rclcpp sensor_msgs std
 install(TARGETS
   autonomy_manager_node
   drive_mapper_node
+  global_costmap_node
   global_planner_node
+  local_costmap_node
   local_planner_node
   point_lio_lidar_adapter_node
   point_lio_monitor_node
