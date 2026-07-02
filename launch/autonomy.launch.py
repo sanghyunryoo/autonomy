@@ -549,7 +549,7 @@ def _point_lio_params(data):
         "mapping.gyr_cov_input": 0.01,
         "mapping.acc_cov_input": 0.1,
         "mapping.lidar_meas_cov": 0.05,
-        "odom_header_frame_id": _robot_params(data).get("map_frame", "map"),
+        "odom_header_frame_id": _robot_frame(data, "map_frame", "map"),
         "odom_child_frame_id": _robot_frame(data, "base_link", "base_link"),
         "publish.scan_bodyframe_pub_en": False,
         "runtime_pos_log_enable": False,
