@@ -374,6 +374,46 @@ probe_host() {
   ping -c 1 -W 1 "${ip_addr}" >/dev/null 2>&1
 }
 
+discover_livox_neighbor_ip() {
+  local iface="$1"
+  local host_ip="$2"
+  local candidates=()
+  local ip_addr state
+
+  while read -r ip_addr state; do
+    [[ -n "${ip_addr}" ]] || continue
+    [[ "${ip_addr}" == "${host_ip}" ]] && continue
+    case "${state}" in
+      FAILED|INCOMPLETE|"")
+        continue
+        ;;
+    esac
+    candidates+=("${ip_addr}")
+  done < <(
+    ip neigh show dev "${iface}" 2>/dev/null |
+      awk '
+        $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {
+          state=$NF
+          has_lladdr=0
+          for (i = 1; i <= NF; ++i) {
+            if ($i == "lladdr") {
+              has_lladdr=1
+            }
+          }
+          if (has_lladdr) {
+            print $1, state
+          }
+        }'
+  )
+
+  if [[ "${#candidates[@]}" -eq 1 ]]; then
+    printf '%s\n' "${candidates[0]}"
+    return 0
+  fi
+
+  return 1
+}
+
 scan_livox_candidates() {
   local iface="$1"
   local cidr="$2"
@@ -418,6 +458,12 @@ discover_livox_ip() {
 
   if [[ -n "${explicit_ip}" && "${explicit_ip}" != "auto" ]]; then
     printf '%s\n' "${explicit_ip}"
+    return
+  fi
+
+  local neighbor_ip
+  if neighbor_ip="$(discover_livox_neighbor_ip "${iface}" "${host_ip}")"; then
+    printf '%s\n' "${neighbor_ip}"
     return
   fi
 
