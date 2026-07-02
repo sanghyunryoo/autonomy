@@ -648,6 +648,81 @@ run_autonomy_launch() {
   fi
 }
 
+cleanup_stale_autonomy_processes() {
+  if is_simulation_launch; then
+    return 0
+  fi
+  if ! command -v pgrep >/dev/null 2>&1 || ! command -v ps >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local patterns=(
+    "realsense2_camera_node"
+    "livox_ros_driver2_node"
+    "drive_mapper_node"
+    "pointcloud_merge_node"
+    "elevation_mapping_node"
+    "autonomy_manager_node"
+    "point_lio_lidar_adapter_node"
+    "point_lio_monitor_node"
+    "global_planner_node"
+    "local_planner_node"
+    "pointlio_mapping"
+  )
+  local current_pgid
+  current_pgid="$(ps -o pgid= -p "$$" | tr -d ' ' || true)"
+
+  local pids=()
+  local pattern pid command_line
+  for pattern in "${patterns[@]}"; do
+    while IFS= read -r line; do
+      pid="${line%% *}"
+      command_line="${line#* }"
+      [[ -n "${pid}" && "${pid}" =~ ^[0-9]+$ ]] || continue
+      [[ "${pid}" == "$$" || "${pid}" == "${BASHPID}" ]] && continue
+      [[ "${command_line}" == *"scripts/launch.sh"* ]] && continue
+      pids+=("${pid}")
+    done < <(pgrep -af "${pattern}" 2>/dev/null || true)
+  done
+
+  if [[ "${#pids[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  local unique_pids=()
+  local seen=" "
+  for pid in "${pids[@]}"; do
+    if [[ "${seen}" != *" ${pid} "* ]]; then
+      unique_pids+=("${pid}")
+      seen+=" ${pid} "
+    fi
+  done
+
+  echo "Stopping stale autonomy/sensor processes before launch: ${unique_pids[*]}"
+  local pgid target
+  for pid in "${unique_pids[@]}"; do
+    pgid="$(ps -o pgid= -p "${pid}" | tr -d ' ' || true)"
+    if [[ -n "${pgid}" && "${pgid}" != "${current_pgid}" ]]; then
+      target="-${pgid}"
+    else
+      target="${pid}"
+    fi
+    kill -TERM "${target}" >/dev/null 2>&1 || true
+  done
+
+  sleep 1
+  for pid in "${unique_pids[@]}"; do
+    if kill -0 "${pid}" >/dev/null 2>&1; then
+      pgid="$(ps -o pgid= -p "${pid}" | tr -d ' ' || true)"
+      if [[ -n "${pgid}" && "${pgid}" != "${current_pgid}" ]]; then
+        kill -KILL "-${pgid}" >/dev/null 2>&1 || true
+      else
+        kill -KILL "${pid}" >/dev/null 2>&1 || true
+      fi
+    fi
+  done
+}
+
 read_expected_sensor_topics() {
   local config_file="$1"
   /usr/bin/python3 - "${config_file}" <<'PY'
@@ -836,6 +911,7 @@ stop_autonomy_launch() {
 }
 
 run_autonomy_launch_guarded() {
+  cleanup_stale_autonomy_processes
   start_autonomy_launch
   if ! wait_for_expected_sensors "${resolved_autonomy_config}"; then
     stop_autonomy_launch

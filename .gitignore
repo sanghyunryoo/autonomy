@@ -1,1 +1,9 @@
+__pycache__/
+*.py[cod]
+
+third_party/point_lio_ros2/image/
+third_party/point_lio_ros2/.gitmodules
+third_party/point_lio_ros2/**/.vscode/
+third_party/point_lio_ros2/Log/*.txt
+
 third_party/orb_slam3/Vocabulary/ORBvoc.txt
