@@ -175,6 +175,13 @@ def _stream_profile(data, prefix):
     return ""
 
 
+def _stream_bool(data, key, default):
+    stream = data.get("stream", {})
+    if not isinstance(stream, dict):
+        stream = {}
+    return _parse_bool(stream.get(key, default), default=default)
+
+
 def _realsense_actions(data, simulation):
     if simulation:
         return []
@@ -189,6 +196,7 @@ def _realsense_actions(data, simulation):
     namespace = _robot_namespace(data)
     depth_profile = _stream_profile(data, "depth")
     color_profile = _stream_profile(data, "color")
+    enable_color = _stream_bool(data, "enable_color", True)
     actions = []
 
     for binding in _camera_bindings(data, "real"):
@@ -202,7 +210,7 @@ def _realsense_actions(data, simulation):
             "camera_namespace": namespace,
             "camera_name": camera_name,
             "enable_depth": True,
-            "enable_color": True,
+            "enable_color": enable_color,
             "enable_gyro": has_imu,
             "enable_accel": has_imu,
             "enable_motion": has_imu,
@@ -216,7 +224,7 @@ def _realsense_actions(data, simulation):
             parameters["serial_no"] = serial_no
         if depth_profile:
             parameters["depth_module.depth_profile"] = depth_profile
-        if color_profile:
+        if enable_color and color_profile:
             parameters["rgb_camera.color_profile"] = color_profile
 
         actions.append(LogInfo(msg=f"Launching RealSense camera {namespace}/{camera_name}."))

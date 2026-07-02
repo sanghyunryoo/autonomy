@@ -1420,6 +1420,72 @@ build_autonomy_package() {
     --cmake-args "${cmake_args[@]}"
 }
 
+cleanup_stale_realsense_processes() {
+  if ! command -v pgrep >/dev/null 2>&1 || ! command -v ps >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local patterns=(
+    "realsense2_camera_node"
+    "realsense-viewer"
+    "rs-enumerate-devices"
+    "rs-depth"
+    "rs-capture"
+  )
+  local current_pgid
+  current_pgid="$(ps -o pgid= -p "$$" | tr -d ' ' || true)"
+
+  local pids=()
+  local pattern pid command_line
+  for pattern in "${patterns[@]}"; do
+    while IFS= read -r line; do
+      pid="${line%% *}"
+      command_line="${line#* }"
+      [[ -n "${pid}" && "${pid}" =~ ^[0-9]+$ ]] || continue
+      [[ "${pid}" == "$$" || "${pid}" == "${BASHPID}" ]] && continue
+      [[ "${command_line}" == *"scripts/build.sh"* ]] && continue
+      pids+=("${pid}")
+    done < <(pgrep -af "${pattern}" 2>/dev/null || true)
+  done
+
+  if [[ "${#pids[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  local unique_pids=()
+  local seen=" "
+  for pid in "${pids[@]}"; do
+    if [[ "${seen}" != *" ${pid} "* ]]; then
+      unique_pids+=("${pid}")
+      seen+=" ${pid} "
+    fi
+  done
+
+  warn "Stopping stale RealSense processes before device enumeration: ${unique_pids[*]}"
+  local pgid target
+  for pid in "${unique_pids[@]}"; do
+    pgid="$(ps -o pgid= -p "${pid}" | tr -d ' ' || true)"
+    if [[ -n "${pgid}" && "${pgid}" != "${current_pgid}" ]]; then
+      target="-${pgid}"
+    else
+      target="${pid}"
+    fi
+    kill -TERM "${target}" >/dev/null 2>&1 || true
+  done
+
+  sleep 1
+  for pid in "${unique_pids[@]}"; do
+    if kill -0 "${pid}" >/dev/null 2>&1; then
+      pgid="$(ps -o pgid= -p "${pid}" | tr -d ' ' || true)"
+      if [[ -n "${pgid}" && "${pgid}" != "${current_pgid}" ]]; then
+        kill -KILL "-${pgid}" >/dev/null 2>&1 || true
+      else
+        kill -KILL "${pid}" >/dev/null 2>&1 || true
+      fi
+    fi
+  done
+}
+
 run_jetson_setup_steps() {
   require_cmd sudo
   check_jetson_platform
@@ -1434,6 +1500,8 @@ run_jetson_setup_steps() {
   log "USB topology"
   lsusb || true
   lsusb -t || true
+
+  cleanup_stale_realsense_processes
 
   log "Running RealSense device enumeration"
   if command -v rs-enumerate-devices >/dev/null 2>&1; then

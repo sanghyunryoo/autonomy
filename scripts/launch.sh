@@ -707,10 +707,22 @@ cleanup_stale_autonomy_processes() {
     else
       target="${pid}"
     fi
-    kill -TERM "${target}" >/dev/null 2>&1 || true
+    kill -INT "${target}" >/dev/null 2>&1 || kill -TERM "${target}" >/dev/null 2>&1 || true
   done
 
-  sleep 1
+  local waited
+  for waited in 1 2 3 4 5 6 7 8; do
+    local any_alive=false
+    for pid in "${unique_pids[@]}"; do
+      if kill -0 "${pid}" >/dev/null 2>&1; then
+        any_alive=true
+        break
+      fi
+    done
+    [[ "${any_alive}" == false ]] && return 0
+    sleep 1
+  done
+
   for pid in "${unique_pids[@]}"; do
     if kill -0 "${pid}" >/dev/null 2>&1; then
       pgid="$(ps -o pgid= -p "${pid}" | tr -d ' ' || true)"
@@ -817,7 +829,7 @@ wait_for_expected_sensors() {
   fi
 
   local config_file="$1"
-  local timeout_sec="${AUTONOMY_SENSOR_TIMEOUT_SEC:-25}"
+  local timeout_sec="${AUTONOMY_SENSOR_TIMEOUT_SEC:-45}"
   local expected=()
   mapfile -t expected < <(read_expected_sensor_topics "${config_file}")
   if [[ "${#expected[@]}" -eq 0 ]]; then
@@ -901,8 +913,17 @@ start_autonomy_launch() {
 stop_autonomy_launch() {
   if [[ -n "${launch_pid}" ]] && kill -0 "${launch_pid}" >/dev/null 2>&1; then
     echo "Stopping autonomy launch process group pid=${launch_pid}"
-    kill -TERM "-${launch_pid}" >/dev/null 2>&1 || kill "${launch_pid}" >/dev/null 2>&1 || true
-    sleep 1
+    kill -INT "-${launch_pid}" >/dev/null 2>&1 || kill -INT "${launch_pid}" >/dev/null 2>&1 || true
+    local waited
+    for waited in 1 2 3 4 5 6 7 8 9 10; do
+      if ! kill -0 "${launch_pid}" >/dev/null 2>&1; then
+        wait "${launch_pid}" >/dev/null 2>&1 || true
+        return 0
+      fi
+      sleep 1
+    done
+    kill -TERM "-${launch_pid}" >/dev/null 2>&1 || kill -TERM "${launch_pid}" >/dev/null 2>&1 || true
+    sleep 3
     if kill -0 "${launch_pid}" >/dev/null 2>&1; then
       kill -KILL "-${launch_pid}" >/dev/null 2>&1 || kill -KILL "${launch_pid}" >/dev/null 2>&1 || true
     fi
