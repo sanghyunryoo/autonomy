@@ -211,6 +211,8 @@ def _realsense_actions(data, simulation):
             "camera_name": camera_name,
             "enable_depth": True,
             "enable_color": enable_color,
+            "enable_infra1": False,
+            "enable_infra2": False,
             "enable_gyro": has_imu,
             "enable_accel": has_imu,
             "enable_motion": has_imu,
