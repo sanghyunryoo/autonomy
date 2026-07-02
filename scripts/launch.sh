@@ -736,32 +736,6 @@ if isinstance(lidar_names, list):
 PY
 }
 
-wait_for_topic_once() {
-  local label="$1"
-  local topic="$2"
-  local msg_type="$3"
-  local timeout_sec="$4"
-  local log_file
-  log_file="$(mktemp "/tmp/autonomy_sensor_${label//[^A-Za-z0-9_]/_}.XXXXXX.log")"
-
-  printf 'Waiting for %s: %s (%ss)\n' "${label}" "${topic}" "${timeout_sec}"
-  if timeout "${timeout_sec}" ros2 topic echo --once "${topic}" "${msg_type}" >"${log_file}" 2>&1; then
-    printf 'Sensor OK: %s -> %s\n' "${label}" "${topic}"
-    rm -f "${log_file}"
-    return 0
-  fi
-
-  printf 'ERROR: expected sensor data was not received: %s -> %s\n' "${label}" "${topic}" >&2
-  printf '       message type: %s\n' "${msg_type}" >&2
-  printf '       inspect with: ros2 topic info -v %s\n' "${topic}" >&2
-  if [[ -s "${log_file}" ]]; then
-    printf '       ros2 topic echo output:\n' >&2
-    sed 's/^/         /' "${log_file}" >&2
-  fi
-  rm -f "${log_file}"
-  return 1
-}
-
 wait_for_expected_sensors() {
   if is_simulation_launch; then
     return 0
@@ -779,40 +753,84 @@ wait_for_expected_sensors() {
   echo "Checking expected real sensors before keeping autonomy launch alive."
   echo "Sensor timeout: ${timeout_sec}s per topic (override with AUTONOMY_SENSOR_TIMEOUT_SEC)."
 
-  local pids=()
   local item label topic msg_type
   for item in "${expected[@]}"; do
     IFS='|' read -r label topic msg_type <<<"${item}"
-    wait_for_topic_once "${label}" "${topic}" "${msg_type}" "${timeout_sec}" &
-    pids+=("$!")
+    printf 'Waiting for %s: %s\n' "${label}" "${topic}"
   done
 
-  local failed=0
-  local pid
-  for pid in "${pids[@]}"; do
-    if ! wait "${pid}"; then
-      failed=1
-    fi
-  done
+  /usr/bin/python3 - "${timeout_sec}" "${expected[@]}" <<'PY'
+import sys
+import time
 
-  if [[ "${failed}" -ne 0 ]]; then
-    echo "ERROR: one or more expected sensors did not publish data; stopping launch." >&2
-    return 1
-  fi
-  return 0
+import rclpy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rosidl_runtime_py.utilities import get_message
+
+timeout_sec = float(sys.argv[1])
+expected = []
+for item in sys.argv[2:]:
+    label, topic, msg_type = item.split("|", 2)
+    expected.append((label, topic, msg_type))
+
+rclpy.init()
+node = rclpy.create_node("autonomy_expected_sensor_guard")
+received = set()
+subscriptions = []
+qos = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+try:
+    for label, topic, msg_type in expected:
+        msg_cls = get_message(msg_type)
+
+        def callback(_msg, sensor_label=label):
+            if sensor_label not in received:
+                print(f"Sensor OK: {sensor_label}", flush=True)
+            received.add(sensor_label)
+
+        subscriptions.append(node.create_subscription(msg_cls, topic, callback, qos))
+
+    deadline = time.monotonic() + timeout_sec
+    while rclpy.ok() and time.monotonic() < deadline and len(received) < len(expected):
+        rclpy.spin_once(node, timeout_sec=0.1)
+
+    missing = [(label, topic, msg_type) for label, topic, msg_type in expected if label not in received]
+    if missing:
+        print("ERROR: one or more expected sensors did not publish data:", file=sys.stderr)
+        for label, topic, msg_type in missing:
+            print(f"  - {label}: {topic} ({msg_type})", file=sys.stderr)
+            print(f"    inspect: ros2 topic info -v {topic}", file=sys.stderr)
+        sys.exit(1)
+finally:
+    node.destroy_node()
+    rclpy.shutdown()
+PY
 }
 
 launch_pid=""
 
 start_autonomy_launch() {
-  run_autonomy_launch &
+  if [[ -f "${source_launch_file}" ]]; then
+    setsid ros2 launch "${source_launch_file}" "${launch_args[@]}" &
+  else
+    setsid ros2 launch autonomy autonomy.launch.py "${launch_args[@]}" &
+  fi
   launch_pid="$!"
 }
 
 stop_autonomy_launch() {
   if [[ -n "${launch_pid}" ]] && kill -0 "${launch_pid}" >/dev/null 2>&1; then
-    echo "Stopping autonomy launch pid=${launch_pid}"
-    kill "${launch_pid}" >/dev/null 2>&1 || true
+    echo "Stopping autonomy launch process group pid=${launch_pid}"
+    kill -TERM "-${launch_pid}" >/dev/null 2>&1 || kill "${launch_pid}" >/dev/null 2>&1 || true
+    sleep 1
+    if kill -0 "${launch_pid}" >/dev/null 2>&1; then
+      kill -KILL "-${launch_pid}" >/dev/null 2>&1 || kill -KILL "${launch_pid}" >/dev/null 2>&1 || true
+    fi
     wait "${launch_pid}" >/dev/null 2>&1 || true
   fi
 }

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import yaml
@@ -359,6 +360,75 @@ def _point_lio_adapter_params(data):
     return params
 
 
+def _lidar_enabled(data):
+    params = _node_params(data, "pointcloud_merge_node")
+    lidar_names = params.get("lidar_names", [])
+    lidars = params.get("lidars", {})
+    if not isinstance(lidar_names, list):
+        return False
+    if not isinstance(lidars, dict):
+        lidars = {}
+    for raw_name in lidar_names:
+        name = str(raw_name)
+        lidar = lidars.get(name, {})
+        if not isinstance(lidar, dict):
+            lidar = {}
+        if _parse_bool(lidar.get("enabled", True), default=True):
+            return True
+    return False
+
+
+def _livox_driver_action(data, simulation):
+    if simulation or not _lidar_enabled(data):
+        return []
+
+    try:
+        get_package_share_directory("livox_ros_driver2")
+    except PackageNotFoundError as exc:
+        raise RuntimeError(
+            "livox_ros_driver2 package not found. Run scripts/build.sh jetson with Livox support "
+            "so MID-360 can be launched automatically."
+        ) from exc
+
+    namespace = _robot_namespace(data)
+    frame_id = _robot_frame(data, "lidar_link", "lidar_link")
+    config_path = os.environ.get("AUTONOMY_LIVOX_CONFIG_PATH", "").strip()
+    if not config_path:
+        config_path = str(Path(get_package_share_directory("livox_ros_driver2")) / "config" / "MID360_config.json")
+
+    parameters = {
+        "xfer_format": 0,
+        "multi_topic": 0,
+        "data_src": 0,
+        "publish_freq": 10.0,
+        "output_data_type": 0,
+        "frame_id": frame_id,
+        "lvx_file_path": "/tmp/autonomy_livox.lvx",
+        "user_config_path": config_path,
+        "cmdline_input_bd_code": "livox0000000001",
+    }
+
+    return [
+        LogInfo(msg=f"Launching Livox MID-360 driver in namespace {namespace} using {config_path}."),
+        Node(
+            package="livox_ros_driver2",
+            executable="livox_ros_driver2_node",
+            namespace=namespace,
+            name="livox_lidar_publisher",
+            output="screen",
+            parameters=[parameters],
+            remappings=[
+                ("livox/lidar", f"/{namespace}/livox/lidar"),
+                ("/livox/lidar", f"/{namespace}/livox/lidar"),
+                ("livox/imu", f"/{namespace}/livox/imu"),
+                ("/livox/imu", f"/{namespace}/livox/imu"),
+            ],
+            sigterm_timeout=NODE_SIGTERM_TIMEOUT,
+            sigkill_timeout=NODE_SIGKILL_TIMEOUT,
+        ),
+    ]
+
+
 def _point_lio_params(data):
     params = _node_params(data, "point_lio")
     adapter = _point_lio_adapter_params(data)
@@ -500,6 +570,7 @@ def _make_stack(context, *args, **kwargs):
         LogInfo(msg="Local planner command output enabled." if enable_planning else "Local planner command output disabled."),
         LogInfo(msg=_dds_network_log_message(data)),
         *_realsense_actions(data, simulation),
+        *_livox_driver_action(data, simulation),
         _worker_node(
             "drive_mapper_node",
             [_mapper_params(data, space), {
