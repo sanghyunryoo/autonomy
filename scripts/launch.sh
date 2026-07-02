@@ -142,16 +142,10 @@ def value(source, name, default=""):
     item = source.get(name, default)
     return "" if item is None else str(item).strip()
 
-print(value(network, "enabled", "true").lower())
-print(value(network, "mode", "auto").lower())
 print(value(network, "interface"))
 print(value(network, "host_ip", "192.168.1.50/24"))
-print(value(network, "gateway_ip", "192.168.1.1"))
 print(value(network, "scan_cidr", "192.168.1.0/24"))
 print(value(network, "lidar_ip", "auto"))
-print(value(network, "serial_suffix"))
-print(value(network, "config_output", "/tmp/autonomy_livox_mid360_config.json"))
-print(value(network, "install_nmap_if_missing", "false").lower())
 print(value(lidar, "driver_frame", value(driver, "frame_id", "livox_frame")))
 PY
 }
@@ -375,37 +369,6 @@ is_simulation_launch() {
   return 1
 }
 
-bool_enabled() {
-  case "${1,,}" in
-    true|1|yes|y|on|auto)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-last_two_digits() {
-  local text="$1"
-  local digits
-  digits="$(printf '%s' "${text}" | tr -cd '0-9')"
-  if [[ "${#digits}" -ge 2 ]]; then
-    printf '%s\n' "${digits: -2}"
-  fi
-}
-
-candidate_ip_from_suffix() {
-  local cidr="$1"
-  local suffix="$2"
-  local octet
-  octet="$(last_two_digits "${suffix}")"
-  [[ -n "${octet}" ]] || return 1
-  octet="$((10#${octet}))"
-  local prefix="${cidr%.*/*}"
-  printf '%s.%d\n' "${prefix}" "$((100 + octet))"
-}
-
 probe_host() {
   local ip_addr="$1"
   ping -c 1 -W 1 "${ip_addr}" >/dev/null 2>&1
@@ -415,20 +378,10 @@ scan_livox_candidates() {
   local iface="$1"
   local cidr="$2"
   local host_ip="$3"
-  local gateway_ip="$4"
-  local serial_suffix="$5"
   local candidate
   local seen=" "
 
-  if [[ -n "${serial_suffix}" ]]; then
-    candidate="$(candidate_ip_from_suffix "${cidr}" "${serial_suffix}" || true)"
-    if [[ -n "${candidate}" ]]; then
-      printf '%s\n' "${candidate}"
-      seen+=" ${candidate} "
-    fi
-  fi
-
-  for candidate in "${gateway_ip}" 192.168.1.12 192.168.1.102 192.168.1.3; do
+  for candidate in 192.168.1.12 192.168.1.102 192.168.1.3 192.168.1.1; do
     [[ -n "${candidate}" ]] || continue
     [[ "${seen}" == *" ${candidate} "* ]] && continue
     printf '%s\n' "${candidate}"
@@ -461,9 +414,7 @@ discover_livox_ip() {
   local iface="$1"
   local cidr="$2"
   local host_ip="$3"
-  local gateway_ip="$4"
-  local explicit_ip="$5"
-  local serial_suffix="$6"
+  local explicit_ip="$4"
 
   if [[ -n "${explicit_ip}" && "${explicit_ip}" != "auto" ]]; then
     printf '%s\n' "${explicit_ip}"
@@ -477,7 +428,7 @@ discover_livox_ip() {
       printf '%s\n' "${candidate}"
       return
     fi
-  done < <(scan_livox_candidates "${iface}" "${cidr}" "${host_ip}" "${gateway_ip}" "${serial_suffix}")
+  done < <(scan_livox_candidates "${iface}" "${cidr}" "${host_ip}")
 
   return 1
 }
@@ -548,34 +499,18 @@ configure_livox_network() {
   config_file="$(resolve_autonomy_config)"
   [[ -f "${config_file}" ]] || return 0
 
-  local enabled mode iface host_cidr gateway_ip scan_cidr lidar_ip serial_suffix output_path install_nmap frame_id
+  local iface host_cidr scan_cidr lidar_ip output_path frame_id
   mapfile -t livox_config < <(read_livox_network_config "${config_file}")
-  enabled="${livox_config[0]:-true}"
-  mode="${livox_config[1]:-auto}"
-  iface="${livox_config[2]:-}"
-  host_cidr="${livox_config[3]:-192.168.1.50/24}"
-  gateway_ip="${livox_config[4]:-192.168.1.1}"
-  scan_cidr="${livox_config[5]:-192.168.1.0/24}"
-  lidar_ip="${livox_config[6]:-auto}"
-  serial_suffix="${livox_config[7]:-}"
-  output_path="${livox_config[8]:-/tmp/autonomy_livox_mid360_config.json}"
-  install_nmap="${livox_config[9]:-false}"
-  frame_id="${livox_config[10]:-livox_frame}"
-
-  bool_enabled "${enabled}" || return
-  [[ "${mode}" == "auto" || "${mode}" == "wired" || "${mode}" == "ethernet" ]] || return
+  iface="${livox_config[0]:-}"
+  host_cidr="${livox_config[1]:-192.168.1.50/24}"
+  scan_cidr="${livox_config[2]:-192.168.1.0/24}"
+  lidar_ip="${livox_config[3]:-auto}"
+  frame_id="${livox_config[4]:-livox_frame}"
+  output_path="/tmp/autonomy_livox_mid360_config.json"
 
   if ! command -v ip >/dev/null 2>&1; then
     echo "warning: 'ip' command not found; skipping Livox network auto setup." >&2
     return
-  fi
-
-  if [[ "${install_nmap}" == "true" ]]; then
-    if ! command -v nmap >/dev/null 2>&1; then
-      echo "Installing nmap for Livox discovery"
-      sudo apt-get update
-      sudo apt-get install -y nmap
-    fi
   fi
 
   local host_ip="${host_cidr%%/*}"
@@ -595,11 +530,12 @@ configure_livox_network() {
   fi
 
   local detected_lidar_ip
-  if detected_lidar_ip="$(discover_livox_ip "${iface}" "${scan_cidr}" "${host_ip}" "${gateway_ip}" "${lidar_ip}" "${serial_suffix}")"; then
+  if detected_lidar_ip="$(discover_livox_ip "${iface}" "${scan_cidr}" "${host_ip}" "${lidar_ip}")"; then
     lidar_ip="${detected_lidar_ip}"
   else
-    echo "warning: could not auto-detect Livox MID360 IP on ${iface} ${scan_cidr}; using ${gateway_ip}" >&2
-    lidar_ip="${gateway_ip}"
+    echo "warning: could not auto-detect Livox MID360 IP on ${iface} ${scan_cidr}; skipping Livox auto config." >&2
+    echo "warning: set livox_network.lidar_ip explicitly if auto detection cannot see the sensor." >&2
+    return
   fi
 
   write_livox_mid360_config "${output_path}" "${host_ip}" "${lidar_ip}" "${frame_id}" >/dev/null
