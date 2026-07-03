@@ -353,7 +353,7 @@ elevation_mapping_node:
 
     command_filter:
       obstacle_floor_z: -0.47957
-      obstacle_height_threshold: 0.25
+      obstacle_height_threshold: 0.6
       forward_lateral_half_width: 0.25
       right_longitudinal_half_width: 0.25
       forward_distance: 0.8
