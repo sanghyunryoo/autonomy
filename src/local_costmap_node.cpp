@@ -41,6 +41,14 @@ public:
     lethal_height_ = std::max(1.0e-3, declare_parameter<double>("lethal_height", 0.18));
     inscribed_height_ = std::clamp(
       declare_parameter<double>("inscribed_height", 0.08), 0.0, lethal_height_);
+    inflation_radius_ = std::max(0.0, declare_parameter<double>("inflation_radius", 0.45));
+    inscribed_radius_ = std::max(0.0, declare_parameter<double>("inscribed_radius", 0.25));
+    inflation_cost_scaling_ = std::max(1.0e-3, declare_parameter<double>("inflation_cost_scaling", 4.0));
+    min_inflation_cost_ = static_cast<int>(
+      std::clamp<long>(declare_parameter<int>("min_inflation_cost", 1), 0L, 99L));
+    unknown_is_free_ = declare_parameter<bool>("unknown_is_free", true);
+    obstacle_hold_scans_ = static_cast<std::uint8_t>(
+      std::clamp<int>(declare_parameter<int>("obstacle_hold_scans", 3), 0, 100));
 
     costmap_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>(
       costmap_topic_, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
@@ -85,6 +93,8 @@ private:
 
     projectOriginToMapFrame(scan, msg);
     fillCosts(scan, msg.data);
+    applyUnknownPolicy(msg.data);
+    inflateCosts(msg.info.width, msg.info.height, msg.info.resolution, msg.data);
     return msg;
   }
 
@@ -186,6 +196,93 @@ private:
     }
   }
 
+  void applyUnknownPolicy(std::vector<std::int8_t> & costs)
+  {
+    if (obstacle_hold_counts_.size() != costs.size()) {
+      obstacle_hold_counts_.assign(costs.size(), 0);
+    }
+
+    for (std::size_t i = 0; i < costs.size(); ++i) {
+      if (costs[i] >= 100) {
+        obstacle_hold_counts_[i] = obstacle_hold_scans_;
+        continue;
+      }
+
+      if (costs[i] < 0) {
+        if (obstacle_hold_counts_[i] > 0U) {
+          costs[i] = 100;
+          --obstacle_hold_counts_[i];
+        } else if (unknown_is_free_) {
+          costs[i] = 0;
+        }
+      } else {
+        obstacle_hold_counts_[i] = 0;
+      }
+    }
+  }
+
+  void inflateCosts(
+    const std::uint32_t width,
+    const std::uint32_t height,
+    const double resolution,
+    std::vector<std::int8_t> & costs) const
+  {
+    if (inflation_radius_ <= 0.0 || costs.empty() || width == 0U || height == 0U) {
+      return;
+    }
+
+    auto inflated = costs;
+    const int radius_cells = static_cast<int>(std::ceil(inflation_radius_ / resolution));
+    for (std::uint32_t row = 0; row < height; ++row) {
+      for (std::uint32_t col = 0; col < width; ++col) {
+        const auto obstacle_index = static_cast<std::size_t>(row) * width + col;
+        if (costs[obstacle_index] < 100) {
+          continue;
+        }
+
+        const int row_min = std::max<int>(0, static_cast<int>(row) - radius_cells);
+        const int row_max = std::min<int>(static_cast<int>(height) - 1, static_cast<int>(row) + radius_cells);
+        const int col_min = std::max<int>(0, static_cast<int>(col) - radius_cells);
+        const int col_max = std::min<int>(static_cast<int>(width) - 1, static_cast<int>(col) + radius_cells);
+        for (int near_row = row_min; near_row <= row_max; ++near_row) {
+          for (int near_col = col_min; near_col <= col_max; ++near_col) {
+            const double dx = static_cast<double>(near_col - static_cast<int>(col)) * resolution;
+            const double dy = static_cast<double>(near_row - static_cast<int>(row)) * resolution;
+            const double distance = std::hypot(dx, dy);
+            if (distance > inflation_radius_) {
+              continue;
+            }
+            const auto index = static_cast<std::size_t>(near_row) * width + static_cast<std::size_t>(near_col);
+            const int cost = inflationCost(distance);
+            if (inflated[index] < 0) {
+              inflated[index] = static_cast<std::int8_t>(cost);
+            } else {
+              inflated[index] = static_cast<std::int8_t>(std::max<int>(inflated[index], cost));
+            }
+          }
+        }
+      }
+    }
+    costs = std::move(inflated);
+  }
+
+  int inflationCost(const double distance) const
+  {
+    if (distance <= 0.0) {
+      return 100;
+    }
+    if (distance <= inscribed_radius_) {
+      return 99;
+    }
+    const double span = std::max(inflation_radius_ - inscribed_radius_, 1.0e-3);
+    const double normalized_distance = (distance - inscribed_radius_) / span;
+    const double decay = std::exp(-inflation_cost_scaling_ * normalized_distance);
+    return std::clamp(
+      static_cast<int>(std::lround(min_inflation_cost_ + (98 - min_inflation_cost_) * decay)),
+      min_inflation_cost_,
+      98);
+  }
+
   void publishHeartbeat()
   {
     std_msgs::msg::String msg;
@@ -201,7 +298,14 @@ private:
   std::string last_frame_id_;
   double lethal_height_{0.18};
   double inscribed_height_{0.08};
+  double inflation_radius_{0.45};
+  double inscribed_radius_{0.25};
+  double inflation_cost_scaling_{4.0};
+  int min_inflation_cost_{1};
+  bool unknown_is_free_{true};
+  std::uint8_t obstacle_hold_scans_{3};
   std::uint64_t received_scans_{0};
+  std::vector<std::uint8_t> obstacle_hold_counts_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;

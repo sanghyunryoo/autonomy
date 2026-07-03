@@ -154,13 +154,23 @@ global_costmap_node:
     cloud_topic: /cloud_registered
     costmap_topic: ~/global_costmap
     resolution: 0.10
-    x_min: -20.0
-    x_max: 20.0
-    y_min: -20.0
-    y_max: 20.0
-    min_obstacle_z: 0.5
+    x_min: -2.0
+    x_max: 2.0
+    y_min: -2.0
+    y_max: 2.0
+    min_obstacle_z: 0.3
     max_obstacle_z: 1.50
-    hit_increment: 8
+    mark_free_space: true
+    max_free_z: 0.3
+    auto_expand: true
+    expand_margin: 1.0
+    max_cells: 4000000
+    free_clear_observations: 5
+    inflation_radius: 0.6
+    inscribed_radius: 0.25
+    inflation_cost_scaling: 4.0
+    min_inflation_cost: 1
+    hit_increment: 100
     decay_per_publish: 0
     publish_rate_hz: 2.0
 
@@ -170,6 +180,12 @@ local_costmap_node:
     costmap_topic: ~/local_costmap
     lethal_height: 0.3
     inscribed_height: 0.08
+    inflation_radius: 0.45
+    inscribed_radius: 0.25
+    inflation_cost_scaling: 4.0
+    min_inflation_cost: 1
+    unknown_is_free: true
+    obstacle_hold_scans: 3
 
 global_planner_node:
   ros__parameters:
