@@ -1,5 +1,5 @@
 robot:
-  model: f16
+  model: f4
   base_height: 0.47957
 
 operation_modes:
@@ -127,7 +127,7 @@ point_lio:
     point_filter_num: 4
     mapping.imu_en: true
     mapping.imu_time_inte: 0.02
-    mapping.acc_norm: 9.81
+    mapping.acc_norm: 1.0
     mapping.extrinsic_est_en: false
     mapping.satu_acc: 30.0
     mapping.satu_gyro: 35.0

@@ -547,7 +547,7 @@ def _point_lio_params(data):
         "point_filter_num": 4,
         "mapping.imu_en": True,
         "mapping.imu_time_inte": 0.02,
-        "mapping.acc_norm": 9.81,
+        "mapping.acc_norm": 1.0,
         "mapping.extrinsic_est_en": False,
         "mapping.satu_acc": 30.0,
         "mapping.satu_gyro": 35.0,
