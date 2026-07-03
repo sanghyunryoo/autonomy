@@ -546,7 +546,7 @@ def _point_lio_params(data):
         "preprocess.blind": 0.1,
         "point_filter_num": 4,
         "mapping.imu_en": True,
-        "mapping.imu_time_inte": 0.005,
+        "mapping.imu_time_inte": 0.02,
         "mapping.acc_norm": 9.81,
         "mapping.extrinsic_est_en": False,
         "mapping.satu_acc": 30.0,
