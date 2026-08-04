@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -43,6 +44,7 @@ struct Options
   double refresh_hz{4.0};
   std::string csv_path;
   bool render{true};
+  bool color{false};
 };
 
 void printUsage(const char * argv0)
@@ -60,6 +62,7 @@ void printUsage(const char * argv0)
     << "  --max-values N                Values printed per sample. Default: 12\n"
     << "  --refresh-hz HZ               Table refresh rate. Default: 4\n"
     << "  --csv PATH                    Save height_map rows as time_ns,s_t_* CSV\n"
+    << "  --color                       Color grid cells by height (blue=low, red=high)\n"
     << "  --no-render                   Disable terminal table output\n";
 }
 
@@ -116,6 +119,8 @@ bool parseOptions(const int argc, char ** argv, Options & options)
       options.refresh_hz = std::stod(value);
     } else if (arg == "--csv" && takeArg(i, argc, argv, value)) {
       options.csv_path = value;
+    } else if (arg == "--color") {
+      options.color = true;
     } else if (arg == "--no-render") {
       options.render = false;
     } else {
@@ -390,6 +395,53 @@ std::pair<std::size_t, std::size_t> heightMapShape(const Options & options, cons
   return {stats.length, 1};
 }
 
+struct Rgb
+{
+  int red;
+  int green;
+  int blue;
+};
+
+Rgb interpolateColor(const Rgb & from, const Rgb & to, const double amount)
+{
+  const auto mix = [amount](const int a, const int b) {
+      return static_cast<int>(std::lround(a + (b - a) * amount));
+    };
+  return {mix(from.red, to.red), mix(from.green, to.green), mix(from.blue, to.blue)};
+}
+
+Rgb heightColor(const double normalized_height)
+{
+  // A compact blue -> cyan -> green -> yellow -> red heat-map ramp.
+  constexpr Rgb colors[] = {
+    {30, 70, 180},
+    {0, 180, 220},
+    {20, 180, 80},
+    {240, 210, 40},
+    {220, 40, 40},
+  };
+  constexpr std::size_t interval_count = (sizeof(colors) / sizeof(colors[0])) - 1;
+  const double scaled = std::clamp(normalized_height, 0.0, 1.0) * interval_count;
+  const auto interval = std::min<std::size_t>(static_cast<std::size_t>(scaled), interval_count - 1);
+  return interpolateColor(colors[interval], colors[interval + 1], scaled - interval);
+}
+
+void printColoredCell(const std::string & text, const float value, const float minimum, const float maximum)
+{
+  double normalized = 0.5;
+  if (std::isfinite(value) && maximum > minimum) {
+    normalized = (static_cast<double>(value) - minimum) / (maximum - minimum);
+  }
+  const auto color = heightColor(normalized);
+  const int luminance = (299 * color.red + 587 * color.green + 114 * color.blue) / 1000;
+  const int foreground = luminance >= 145 ? 30 : 97;
+  std::cout
+    << "\033[" << foreground << ";48;2;"
+    << color.red << ';' << color.green << ';' << color.blue << 'm'
+    << text
+    << "\033[0m";
+}
+
 void printHeightMapGrid(const Options & options, const TopicStats & stats)
 {
   if (!stats.seen) {
@@ -413,6 +465,24 @@ void printHeightMapGrid(const Options & options, const TopicStats & stats)
   }
   std::cout << '\n';
 
+  float color_min = std::numeric_limits<float>::infinity();
+  float color_max = -std::numeric_limits<float>::infinity();
+  for (const float value : stats.values) {
+    if (std::isfinite(value)) {
+      color_min = std::min(color_min, value);
+      color_max = std::max(color_max, value);
+    }
+  }
+  if (!std::isfinite(color_min)) {
+    color_min = 0.0F;
+    color_max = 0.0F;
+  }
+  if (options.color) {
+    std::cout
+      << "color scale  low=" << std::fixed << std::setprecision(4) << color_min
+      << " (blue)  high=" << color_max << " (red)\n";
+  }
+
   std::cout << "        ";
   for (std::size_t col = 0; col < width; ++col) {
     std::cout << " c" << std::left << std::setw(8) << col;
@@ -424,7 +494,13 @@ void printHeightMapGrid(const Options & options, const TopicStats & stats)
     for (std::size_t col = 0; col < width; ++col) {
       const auto index = row * width + col;
       if (index < stats.values.size()) {
-        std::cout << ' ' << std::right << std::setw(8) << std::fixed << std::setprecision(4) << stats.values[index];
+        std::ostringstream cell;
+        cell << ' ' << std::right << std::setw(8) << std::fixed << std::setprecision(4) << stats.values[index];
+        if (options.color && std::isfinite(stats.values[index])) {
+          printColoredCell(cell.str(), stats.values[index], color_min, color_max);
+        } else {
+          std::cout << cell.str();
+        }
       } else {
         std::cout << ' ' << std::right << std::setw(8) << "-";
       }
