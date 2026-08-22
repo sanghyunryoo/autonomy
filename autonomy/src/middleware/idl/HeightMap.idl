@@ -1,0 +1,6 @@
+// MiddlewareManager Cyclone DDS elevation-map transport contract.
+module core_dds {
+  struct HeightMap {
+    sequence<float> data;
+  };
+};

@@ -1,0 +1,10 @@
+This package contains a ROS-free adaptation of the Super-LIO algorithmic
+pipeline in src/algorithm/slam/super_lio.cpp.
+
+Upstream project: Super-LIO
+Source reference retained in: autonomy-main/third_party/super_lio_ros2
+Upstream license: GNU General Public License version 3
+
+The ROSWrapper, ROS publishers/subscribers, and standalone super_lio_node are
+not included in the runtime. SensorManager provides LiDAR/IMU samples directly
+to the embedded core, and IoManager publishes its results.

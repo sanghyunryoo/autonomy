@@ -1,0 +1,7 @@
+// MiddlewareManager Cyclone DDS SLAM velocity transport contract.
+module core_dds {
+  struct LinearVelocity {
+    // Super-LIO ESKF map-frame linear velocity [vx, vy, vz] in m/s.
+    sequence<float> data;
+  };
+};

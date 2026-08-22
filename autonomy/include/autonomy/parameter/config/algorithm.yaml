@@ -1,0 +1,113 @@
+# AlgorithmManager owns all in-process algorithms and their execution policy.
+algorithm:
+  elevation:
+    hz: 50.0
+    resolution: 0.05
+    x_min: -2.0
+    x_max: 2.0
+    y_min: -2.0
+    y_max: 2.0
+    min_z: -2.0
+    max_z: 1.0
+    maximum_range: 2.5
+    point_stride: 1
+
+    # Merged-point robust elevation fusion. All variance values use m².
+    noise_alpha: 0.001
+    minimum_measurement_variance: 0.0004
+    initial_cell_variance: 0.01
+    minimum_cell_variance: 0.0004
+    maximum_cell_variance: 0.25
+    time_variance_rate: 0.20
+    mahalanobis_threshold: 3.0
+    dynamic_environment_variance_bump: 0.0225
+    dynamic_reset_delta: 0.10
+    robust_height_gate: 0.04
+    intra_cell_min_support_gap: 0.025
+    intra_cell_min_support_count: 3
+    edge_mix_height_difference: 0.035
+    edge_prefer_previous_support_count: 2
+    isolated_radius: 1
+    isolated_min_support_neighbors: 2
+    isolated_support_height_difference: 0.025
+    isolated_outlier_height_difference: 0.05
+    isolated_filter_every_n_frames: 2
+    hole_fill_radius: 1
+    hole_fill_min_neighbors: 3
+    hole_fill_max_height_difference: 0.03
+    bilateral_radius: 1
+    bilateral_sigma_spatial: 1.1
+    bilateral_sigma_height: 0.025
+    bilateral_max_height_difference: 0.04
+    bilateral_passes: 2
+    bilateral_every_n_frames: 2
+
+  # All autonomy algorithms are in-process, ROS-free implementations owned by
+  # AlgorithmManager. Sensor drivers only provide raw sensor messages.
+  slam:
+    hz: 10.0
+    map_frame: map
+    minimum_points: 64
+    minimum_imu_samples: 50
+    minimum_range: 0.30
+    maximum_range: 30.0
+    maximum_scan_translation: 1.50
+    maximum_yaw_rate: 3.14
+    scan_voxel_size: 0.20
+    map_voxel_size: 0.30
+    maximum_map_points: 200000
+    registration_iterations: 4
+    keyframe_distance: 1.0
+    loop_min_keyframes: 30
+    loop_descriptor_threshold: 0.25
+    loop_fitness_threshold: 0.35
+    loop_max_correspondence: 2.5
+
+    # Mapping mode first runs SLAM, then writes the map using its map-frame pose.
+    mapping:
+      map_frame: map
+      resolution: 0.10
+      x_min: -20.0
+      x_max: 20.0
+      y_min: -20.0
+      y_max: 20.0
+      obstacle_min_z: 0.10
+      obstacle_max_z: 1.20
+      maximum_range: 20.0
+
+  detection:
+    hz: 30.0
+    camera_id: ai_realsense
+    minimum_depth: 0.30
+    maximum_depth: 6.00
+    sample_stride: 4
+    minimum_valid_samples: 64
+
+  # Hybrid A* consumes a global OccupancyGrid; MPPI tracks its path against
+  # that same map. Both run inside AlgorithmManager at the 10 Hz planner rate.
+  planner:
+    hz: 10.0
+    input_timeout_ms: 500
+    hybrid_astar:
+      wheelbase: 0.45
+      vehicle_radius: 0.35
+      step_size: 0.25
+      max_steering_radians: 0.55
+      goal_tolerance: 0.30
+      heading_bins: 72
+      max_expansions: 20000
+      occupied_threshold: 50
+      unknown_is_obstacle: true
+      allow_reverse: true
+    mppi:
+      sample_count: 128
+      horizon_steps: 20
+      dt: 0.10
+      max_linear_velocity: 0.45
+      max_angular_velocity: 0.80
+      linear_noise: 0.18
+      angular_noise: 0.35
+      temperature: 1.0
+      vehicle_radius: 0.35
+      occupied_threshold: 50
+      unknown_is_obstacle: true

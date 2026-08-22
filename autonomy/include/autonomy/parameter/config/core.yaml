@@ -1,0 +1,15 @@
+# Core owns the deterministic runtime loop and the autonomy state machine.
+core:
+  loop_hz: 50.0
+
+  # Jetson network endpoints used by the driver and SBC transport wrappers.
+  # NIC names and address assignment remain deploy-time systemd/netplan work.
+  network:
+    lidar_local_ip: 192.168.1.50
+    sbc_local_ip: 192.168.20.2
+    sbc_peer_ip: 192.168.20.1
+
+  state:
+    # No report, stale report, E-stop, IDLE/INIT/FREEZE/SIT/LIE => IDLE.
+    require_robot_report: true
+    robot_report_timeout_ms: 500

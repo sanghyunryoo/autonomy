@@ -1,0 +1,8 @@
+SPDX-License-Identifier: GPL-3.0-only
+
+This autonomy package is distributed under the GNU General Public License,
+version 3 only. The license text is available at
+https://www.gnu.org/licenses/gpl-3.0.txt.
+
+The Super-LIO-derived implementation under src/algorithm/slam is covered by
+the same GPL-3.0-only license.
