@@ -1,4 +1,0 @@
-bool allow_linear_vel_forward_x
-bool allow_linear_vel_backward_x
-bool allow_linear_vel_forward_y
-bool allow_linear_vel_backward_y
